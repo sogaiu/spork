@@ -35,4 +35,11 @@
 (def objects @{:one one :two two})
 (assert-error "error on cycles" (json/encode objects))
 
+# null handling
+(assert (deep= @"null" (json/encode :))
+        "use : to encode to null (1)")
+(assert (string/find "null"
+                     (json/encode {:jsonrpc "2.0" :id "1" :result :}))
+        "use : to encode to null (2)")
+
 (end-suite)
