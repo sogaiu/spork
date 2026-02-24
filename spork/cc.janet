@@ -174,8 +174,12 @@
     # object files
     (string/has-suffix? ".o" path) :o
     (string/has-suffix? ".obj" path) :o
-    # janet source - (preprocess)
-    (string/has-suffix? ".janet" path) :janet
+    # janet source - (C or C++ code generators)
+    (string/has-suffix? ".janet" path) :cjanet
+    (string/has-suffix? ".c.janet" path) :cjanet
+    (string/has-suffix? ".cc.janet" path) :c++janet
+    (string/has-suffix? ".cpp.janet" path) :c++janet
+    (string/has-suffix? ".cxx.janet" path) :c++janet
     # else
     (errorf "unknown source file type for %v" path)))
 
@@ -183,7 +187,7 @@
 ### Basic GCC-like Compiler Wrapper
 ###
 
-# GCC toolchain helpers
+# GCC-like toolchain helpers
 (defn- ar [] (dyn *ar* "ar"))
 (defn- cc [] (dyn *cc* "cc"))
 (defn- c++ [] (dyn *c++* "c++"))
@@ -350,10 +354,16 @@
         (set has-cpp true)
         (array/push cmds-into (compile-c++ source o))
         (array/push objects o))
-      :janet
+      :cjanet
       (let [oc (string o ".c")]
         (array/push cmds-into (generic-preprocess source oc))
         (array/push cmds-into (compile-c oc o))
+        (array/push objects o))
+      :c++janet
+      (let [oc (string o ".cpp")]
+        (set has-cpp true)
+        (array/push cmds-into (generic-preprocess source oc))
+        (array/push cmds-into (compile-c++ oc o))
         (array/push objects o))
       # else
       (errorf "unknown source file type for %v" source)))
@@ -569,10 +579,15 @@
       (do
         (array/push cmds-into (msvc-compile-c++ source o))
         (array/push objects o))
-      :janet
+      :cjanet
       (let [oc (string o ".c")]
         (array/push cmds-into (generic-preprocess source oc))
         (array/push cmds-into (msvc-compile-c oc o))
+        (array/push objects o))
+      :c++janet
+      (let [oc (string o ".cpp")]
+        (array/push cmds-into (generic-preprocess source oc))
+        (array/push cmds-into (msvc-compile-c++ oc o))
         (array/push objects o))
       # else
       (errorf "unknown source file type for %v" source)))
