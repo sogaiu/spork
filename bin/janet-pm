@@ -129,7 +129,7 @@
     JANET_BUILD_TYPE
         What kind of build to make when building a bundle that has a
         project.janet. Should be "develop", "release", or "debug".
-        Defaults to "release".
+        Defaults to "develop".
 
     JANET_CURL
         Where to get the "curl" command when handling project.janet.
@@ -316,7 +316,6 @@
    "help" help
    "install" install
    "test" test
-   "help" help
    "deps" deps
    "hook" do-hook
    "env" new-venv

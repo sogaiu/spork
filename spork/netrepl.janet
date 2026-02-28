@@ -354,7 +354,7 @@
     (def gl (make-getline nil get-completions get-docs))
     (forever
       (def p (recv))
-      (if-not p (break))
+      (if-not p (break (eprint "Server Disconnected")))
       (def line (gl p @"" root-env))
       (if (empty? line) (break))
       (send (if (keyword? line) (string "\xFE" line) line)))))

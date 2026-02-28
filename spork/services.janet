@@ -135,6 +135,7 @@
 (defn- stop-and-start-service
   "(Re)start a service"
   [service-name restart-after reason]
+  (def service-name (keyword service-name))
   (def manager (get-manager))
   (def services (get manager :services))
   (def services-inverse (get manager :services-inverse))
@@ -155,7 +156,17 @@
 (defn remove-service
   "Remove a service"
   [service-name]
+  (def service-name (keyword service-name))
   (stop-and-start-service service-name false "service stopped for removal")
+  (ev/sleep 0)
+  # Remove from tables
+  (def manager (get-manager))
+  (def services (get manager :services))
+  (def s (get services service-name))
+  (def services-inverse (get manager :services-inverse))
+  (put services service-name nil)
+  (when-let [f (get s :fiber)]
+    (put services-inverse f nil))
   nil)
 
 (defn wait
@@ -209,7 +220,7 @@
   (def manager (get-manager))
   (def services (get manager :services))
   (def raw-rows
-    (seq [service-name :in (all-services)]
+    (seq [service-name :in (sort (all-services))]
       (get services service-name)))
   (def rows (filter filter-fn raw-rows))
   (misc/print-table rows service-columns service-header-map service-column-map))
