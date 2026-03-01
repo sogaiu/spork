@@ -264,8 +264,8 @@
       (protect (join-nursery nurse))
 
       # Clean up
-      (:write stream "")
-      (:close stream)
+      (protect (:write stream ""))
+      (protect (:close stream))
       (put name-set name nil)
       (eprint "closing client " name)
       (when cleanup (cleanup stream)))))
