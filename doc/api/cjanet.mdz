@@ -64,7 +64,7 @@ cc hello-module.c -shared -fPIC -o hello.so
 
 Next, we can load and run the new native file from Janet:
 
-@codeblock[]```
+@codeblock```
 $ janet
 Janet 1.41.0-dev-306ce892 linux/x64/gcc - '(doc)' for help
 repl:1:> (import ./hello)
@@ -83,7 +83,7 @@ of your choosing to automate this.
 ### Top Level Forms
 
 * include
-* @ \(C preprocessor directive)
+* \@ \(C preprocessor directive)
 * function / emit-function
 * cfunction / emit-cfunction
 * typedef
