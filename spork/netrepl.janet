@@ -34,6 +34,18 @@
     (let [e (make-env)]
       (put e :pretty-format "%.20Q"))))
 
+#
+# Allow the netrepl functions to be called and waited on
+#
+
+(defn- serve-and-wait
+  "Alternative to net/server that suspends the fiber until the server is closed."
+  [host port handler]
+  (def s (net/listen host port))
+  (net/accept-loop s handler)
+  (:close s)
+  nil)
+
 # NETREPL Protocol
 #
 # Clients don't need to support steps 4. and 5. if they never send messages prefixed
@@ -111,22 +123,14 @@
         (enter-debugger f x)
         (do (debug/stacktrace f x "") (eflush))))))
 
-(defn server
-  "Start a repl server. The default host is \"127.0.0.1\" and the default port
-  is \"9365\". Calling this will start a TCP server that exposes a
-  repl into the given env. If no env is provided, a new env will be created
-  per connection. If env is a function, that function will be invoked with
-  the name and stream on each connection to generate an environment. `cleanup` is
-  an optional function that will be called for each stream after closing if provided.
-  `welcome-msg` is an optional string or function (welcome-msg client-name) to generate
-  a message to print for the client on connection."
-  [&opt host port env cleanup welcome-msg]
+(defn- server-impl
+  [server-ctor &opt host port env cleanup welcome-msg]
   (default host default-host)
   (default port default-port)
   (eprint "Starting networked repl server on " host ", port " port "...")
   (def name-set @{})
   (def syspath (dyn :syspath))
-  (net/server
+  (server-ctor
     host port
     (fn repl-handler [stream]
 
@@ -266,10 +270,10 @@
       (eprint "closing client " name)
       (when cleanup (cleanup stream)))))
 
-(defn server-single
+(defn- server-single-impl
   "Short-hand for serving up a a repl that has a single environment table in it. `env`
   must be a proper env table, not a function as is possible in netrepl/server."
-  [&opt host port env cleanup welcome-msg]
+  [server-ctor &opt host port env cleanup welcome-msg]
   (def client-table @{})
   (def inverse-client-table @{})
   (let [e (coerce-to-env (or env (make-env)) nil nil)]
@@ -285,7 +289,43 @@
       (put inverse-client-table stream nil))
     (put e :pretty-format "%.20Q")
     (put e :clients client-table)
-    (server host port env-factory cleanup2 welcome-msg)))
+    (server-impl server-ctor host port env-factory cleanup2 welcome-msg)))
+
+###
+### Server API
+###
+
+(defn server
+  "Start a repl server. The default host is \"127.0.0.1\" and the default port
+  is \"9365\". Calling this will start a TCP server that exposes a
+  repl into the given env. If no env is provided, a new env will be created
+  per connection. If env is a function, that function will be invoked with
+  the name and stream on each connection to generate an environment. `cleanup` is
+  an optional function that will be called for each stream after closing if provided.
+  `welcome-msg` is an optional string or function (welcome-msg client-name) to generate
+  a message to print for the client on connection."
+  [&opt host port env cleanup welcome-msg]
+  (server-impl net/server host port env cleanup welcome-msg))
+
+(defn server-single
+  "Short-hand for serving up a a repl that has a single environment table in it. `env`
+  must be a proper env table, not a function as is possible in netrepl/server."
+  [&opt host port env cleanup welcome-msg]
+  (server-single-impl net/server host port env cleanup welcome-msg))
+
+(defn run-server
+  "Short-hand to more easily run `server` and wait until it has finished. Waits until the repl closes and returns nil."
+  [&opt host port env cleanup welcome-msg]
+  (server-impl serve-and-wait host port env cleanup welcome-msg))
+
+(defn run-server-single
+  "Short-hand to more easily run `server-single` and wait until it has finished. Waits until the repl closes and returns nil."
+  [&opt host port env cleanup welcome-msg]
+  (server-single-impl serve-and-wait host port env cleanup welcome-msg))
+
+###
+### Client
+###
 
 (defn- make-recv-client
   "Similar to msg/make-recv, except has exceptions for out-of-band
@@ -332,6 +372,10 @@
        (def doc-string (get doc-entry :doc))
        (when doc-string
          (string "\n" (doc-format doc-string ,w 4 true))))))
+
+###
+### Client API
+###
 
 (defn client
   "Connect to a repl server. The default host is \"127.0.0.1\" and the default port

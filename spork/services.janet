@@ -36,11 +36,11 @@
 ###
 
 (defn- signal-handler
-  [service sig msg fiber]
+  [service service-name sig msg fiber]
   (def f (get service :logfile))
-  (eprintf "%s from service %s: %.4q" sig service msg)
-  (with-dyns [*err* (get service :logfile)]
-    (debug/stacktrace fiber msg))
+  (eprintf "%s from service %s: %.4q" sig service-name msg)
+  (with-dyns [*err* f]
+    (debug/stacktrace fiber msg "signal: "))
   (put service :last-msg msg)
   (file/flush f))
 
@@ -58,7 +58,7 @@
     (def service-name (or task-id (get services-inverse fiber)))
     (when-let [service (get services service-name)]
       (put service :status (fiber/status (get service :fiber)))
-      (protect (signal-handler service-name sig msg fiber)))))
+      (signal-handler service service-name sig msg fiber))))
 
 (defn make-manager
   "Group a number of fibers into a single object for structured concurrency.
@@ -98,7 +98,7 @@
     (setdyn *out* logfile)
     (setdyn *err* logfile)
     (setdyn *pretty-format* "%.5q")
-    (xprintf logfile "started service %s - args: %q" service-name args)
+    (xprintf logfile "========================\nstarted service %s - args: %q" service-name args)
     (file/flush logfile)
     (setdyn *current-service* service)
     (setdyn *current-manager* manager)
@@ -108,10 +108,13 @@
     (put service :started-at (os/time))
     (main-function ;args))
   (def service @{:name service-name :logfile logfile :main main-function :args args})
-  (def f (ev/go wrapper service (get manager :supervisor)))
+  (def f 
+    (with-dyns []
+      (ev/go wrapper service (get manager :supervisor))))
   (put service :fiber f)
   (put (get manager :services) service-name service)
   (put (get manager :services-inverse) service service-name)
+  (ev/sleep 0) # one loop so that wrapper has been called
   service-name)
 
 (defn stop-service
@@ -179,6 +182,54 @@
     (put manager :terminate true)
     (eachk s (get manager :services) (stop-service s))
     (ev/cancel (get manager :handler) "kill manager")))
+
+###
+### Definition Helpers
+###
+
+(defn run-subprocess
+  ``
+  Create a service entry function that runs in a subprocess.
+  Example usage:
+
+  (services/add-service :my-service services/run-subprocess "janet-netrepl" "-s")
+  ``
+  [prog & args]
+  (def f (assert (dyn *out*)))
+  (assert (= :core/file (type f)))
+  (os/execute [prog ;args] :px {:out f :err f}))
+
+(defn run-module-in-thread
+  ``
+  A service entry function that will run on a module's function on a new thread.
+  Takes the name of a module to import and a function name, and will execute function of that module.
+
+  Example usage:
+
+  (services/add-service :my-service services/run-module-in-thread "spork/netrepl" 'run-server-single)
+  ``
+  [module-name &opt func & args]
+  (default func 'main)
+  (def f (assert (dyn *out*)))
+  (assert (= :core/file (type f)))
+  (def sp (dyn *syspath*))
+  (def tid (dyn :task-id))
+  (ev/do-thread
+    (try
+      (do
+        (setdyn *err* f)
+        (setdyn *out* f)
+        (setdyn *syspath* sp)
+        (setdyn *pretty-format* "%.5q")
+        (setdyn :task-id tid)
+        (def main (module/value (require module-name) (symbol func)))
+        (setdyn *args* [module-name ;args])
+        (main ;(dyn *args*)))
+      ([err f]
+       (debug/stacktrace f err "in worker thread: ")
+       (file/flush f) # flush f after making error stack trace
+       (propagate f err)))
+    (file/flush f)))
 
 ###
 ### Reporting
