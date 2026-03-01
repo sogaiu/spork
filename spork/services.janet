@@ -50,7 +50,7 @@
   (def super (get man :supervisor))
   (def services (get man :services))
   (def services-inverse (get man :services-inverse))
-  # termiate condition allows us to distinguish between an empty manager that is waiting
+  # terminate condition allows us to distinguish between an empty manager that is waiting
   # for services to be added, vs an explicitly canceled one.
   (while (or (next services) (not (get man :terminate)))
     (def [sig fiber task-id] (ev/take super))
@@ -92,8 +92,10 @@
   (def logpath (path/join log-dir (string service-name ".log")))
   (eprint "starting service " service-name " - logs at " logpath)
   (def logfile (file/open logpath :ab))
+  (var wrapper-called false)
   (defn wrapper
     [service]
+    (set wrapper-called true)
     (setdyn *args* [(string service-name) ;args])
     (setdyn *out* logfile)
     (setdyn *err* logfile)
@@ -107,7 +109,8 @@
     (put service :env (curenv))
     (put service :started-at (os/time))
     (main-function ;args))
-  (def service @{:name service-name :logfile logfile :logpath logpath :main main-function :args args})
+  (def service @{:name service-name :logfile logfile :logpath logpath
+                 :main main-function :args args :completion-channel (ev/thread-chan 1)})
   (def f
     (with-dyns []
       (ev/go wrapper service (get manager :supervisor))))
@@ -115,6 +118,7 @@
   (put (get manager :services) service-name service)
   (put (get manager :services-inverse) service service-name)
   (ev/sleep 0) # one loop so that wrapper has been called
+  (assert wrapper-called)
   service-name)
 
 (defn stop-service
@@ -131,7 +135,20 @@
   (def logfile (get serv :logfile))
   (def f (get serv :fiber))
   (ev/cancel f reason)
-  (ev/sleep 0)
+  (def completion-channel (get serv :completion-channel))
+  (ev/sleep 0) # cancelation may take longer...
+  (when (pos? (ev/count completion-channel))
+    (try
+      (do
+        (def complete-time (get serv :completion-deadline 1))
+        # take start token
+        (ev/with-deadline 0 (ev/take completion-channel))
+        # take end token with deadline
+        (ev/with-deadline complete-time (ev/take completion-channel)))
+      ([err f]
+       (file/write logfile "no affirmative cancellation response\n")
+       (debug/stacktrace f err ""))))
+  (ev/chan-close completion-channel)
   (file/close logfile)
   nil)
 
@@ -197,7 +214,16 @@
   [prog & args]
   (def f (assert (dyn *out*)))
   (assert (= :core/file (type f)))
-  (os/execute [prog ;args] :px {:out f :err f}))
+  (var proc nil)
+  (def rc
+    (edefer (if proc (:kill proc))
+      (set proc (os/spawn [prog ;args] :p {:out f :err f}))
+      (os/proc-wait proc)))
+  (when (zero? rc)
+    (print "finished successfully")
+    (do
+      (printf "finished with non-zero exit code: %d" rc)
+      (error (string/format "non-zero exit %d" rc)))))
 
 # TODO - move to ev-utils?
 (defn- thread-with-cancel
@@ -206,12 +232,13 @@
   is a fiber A -> thread -> fiber B relationship where cancelling fiber A should also cancel
   fiber B.
   ```
-  [f]
+  [after-cancel f]
   (def cancel-chan (ev/thread-chan))
   (defn g
     []
     (def root (fiber/root))
-    (ev/go |(ev/cancel root (ev/take cancel-chan))) # messages to this thread will cancel the root fiber
+     # messages to this thread will cancel the root fiber
+    (ev/go |(do (ev/cancel root (ev/take cancel-chan)) (after-cancel)))
     (f))
   (defn body [] (ev/thread g))
   (def cancel-fib (fiber/new body :ti))
@@ -234,14 +261,17 @@
   [module-name &opt func & args]
   (default func 'main)
   (def svc (dyn *current-service*))
+  (def completion-channel (get svc :completion-channel))
+  (ev/give completion-channel :start) # indicate async cancellation
   (def logpath (get svc :logpath))
   (prin "starting new thread\n")
   (flush)
   (def sp (dyn *syspath*))
   (def tid (dyn :task-id))
-  (thread-with-cancel
+  (thread-with-cancel |(ev/give completion-channel :done)
     (fn :thread
       []
+      # Reopen on the new thread rather than transfer via marshalling
       (def g (file/open logpath :ab))
       (try
         (do
