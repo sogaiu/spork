@@ -131,145 +131,168 @@
   (def efile (dyn *err* stderr))
   (def name-set @{})
   (def syspath (dyn :syspath))
-  (server-ctor
-    host port
-    (fn repl-handler [stream]
+  (def all-connections @{})
 
-      # Setup closures and state
-      (setdyn :syspath syspath)
-      (var name "<unknown>")
-      (var last-flush 0)
-      (def outbuf @"")
-      (def nurse (nursery))
-      (defn wrapio [f] (fn [& a] (with-dyns [:out outbuf :err outbuf] (f ;a))))
-      (def recv (make-recv stream))
-      (def send (make-send stream))
-      (var auto-flush false)
-      (var is-first true)
-      (var keep-flushing false)
-      (defn flush1
-        "Write stdout and stderr back to client if there is something to write or enough time has passed."
-        []
-        (def now (os/clock))
-        (when (or (next outbuf) (< (+ 2 last-flush) now))
-          # (xprin stderr outbuf)
-          (def msg (string "\xFF" outbuf))
-          (buffer/clear outbuf)
-          (send msg)
-          (set last-flush now)))
-      (defn flusher
-        "Flush until canceled, or early exit."
-        []
-        (ev/sleep 0)
-        (while keep-flushing
-          (flush1)
-          (ev/sleep 0.1)))
-      (defn get-name
-        "Get client name and settings"
-        []
-        (def msg (recv))
-        (def leader (get msg 0))
-        (if (= 0xFF leader)
-          (let [opts (-> msg (slice 1) parse)]
-            (set auto-flush (get opts :auto-flush))
-            (set name (get opts :name)))
-          (set name msg)))
-      (defn getline-async
-        [prmpt buf]
-        (if auto-flush
-          (flush1)
-          (if is-first # step 6b. is redundant with auto-flush, but needed for clients like Conjure.
-            (set is-first false)
-            (let [b (get outbuf 0)]
-              (when (or (= b 0xFF) (= b 0xFE))
-                (buffer/blit outbuf outbuf 1 0 -1)
-                (put outbuf 0 0xFE))
-              (send outbuf)
-              (buffer/clear outbuf))))
-        (send prmpt)
-        (var ret nil)
-        (while (def msg (recv))
-          (cond
-            (= 0xFF (in msg 0))
-            (send (string/format "%j" (-> msg (slice 1) parse eval protect)))
-            (= 0xFE (in msg 0))
-            (do
-              (def cmd (peg/match cmd-peg msg 1))
-              (if (one? (length cmd))
-                (set ret (first cmd))
-                (set ret cmd))
-              (break))
-            (do (buffer/push-string buf msg) (break))))
-        ret)
-      (defn chunk
-        [buf p]
-        (def delim (parser/state p :delimiters))
-        (def lno ((parser/where p) 0))
-        (getline-async (string name ":" lno ":" delim " ") buf))
+  (defn disconnect-stream
+    [stream]
+    (def name (get all-connections stream))
+    (unless name (break)) # no double free
+    (put all-connections stream nil)
+    (protect (:write stream ""))
+    (protect (:close stream))
+    (unless (= name stream)
+      (put name-set name nil))
+    (protect (xprint efile "closing client " name))
+    (when cleanup (cleanup stream)))
 
-      # Run REPL session
+  (defn disconnect-all
+    []
+    (eachk stream all-connections
+      (disconnect-stream stream)))
 
-      (spawn-nursery
-        nurse
-        # Get name and client settings
-        (set name (or (get-name) (break)))
-        (while (get name-set name)
-          (set name (string name (gensym))))
-        (put name-set name true)
-        (xprint efile "client " name " connected")
-        (def e
-          (try (coerce-to-env env name stream)
-            ([err fib]
-              (xprint efile err)
-              (debug/stacktrace fib "coerce-to-env failed" ""))))
-        (def p (parser/new))
-        # Print welcome message
-        (when (and welcome-msg auto-flush)
-          (def msg
-            (if (bytes? welcome-msg)
-              welcome-msg
-              (welcome-msg name)))
-          (when msg
-            (send (string/format
-                    "\xFF%s"
-                    msg))))
-        # REPL run-conext
-        (->
-          (run-context
-            {:env e
-             :chunks chunk
-             :on-status (make-onsignal getline-async e e 1)
-             :on-compile-error (wrapio bad-compile)
-             :on-parse-error (wrapio bad-parse)
-             :evaluator
-             (fn evaluate-wrapped [x &]
-               (setdyn :out outbuf)
-               (setdyn :err outbuf)
-               (if auto-flush
-                 (do
-                   (set keep-flushing true)
-                   (go-nursery nurse flusher)
-                   (edefer (set keep-flushing false)
-                     (def result (x))
-                     (set keep-flushing false)
-                     (flush1)
-                     result))
-                 (x)))
-             :source "repl"
-             :parser p})
-          coro
-          (fiber/setenv (table/setproto @{:out outbuf :err outbuf :parser p} e))
-          resume))
+  (defn repl-handler [stream]
 
-      # Wait for nursery
-      (protect (join-nursery nurse))
+    # Setup closures and state
+    (setdyn :syspath syspath)
+    (var name "<unknown>")
+    (put all-connections stream name)
+    (var last-flush 0)
+    (def outbuf @"")
+    (def nurse (nursery))
+    (defn wrapio [f] (fn [& a] (with-dyns [:out outbuf :err outbuf] (f ;a))))
+    (def recv (make-recv stream))
+    (def send (make-send stream))
+    (var auto-flush false)
+    (var is-first true)
+    (var keep-flushing false)
 
-      # Clean up
-      (protect (:write stream ""))
-      (protect (:close stream))
-      (put name-set name nil)
-      (xprint efile "closing client " name)
-      (when cleanup (cleanup stream)))))
+    (defn flush1
+      "Write stdout and stderr back to client if there is something to write or enough time has passed."
+      []
+      (def now (os/clock))
+      (when (or (next outbuf) (< (+ 2 last-flush) now))
+        # (xprin stderr outbuf)
+        (def msg (string "\xFF" outbuf))
+        (buffer/clear outbuf)
+        (send msg)
+        (set last-flush now)))
+
+    (defn flusher
+      "Flush until canceled, or early exit."
+      []
+      (ev/sleep 0)
+      (while keep-flushing
+        (flush1)
+        (ev/sleep 0.1)))
+
+    (defn get-name
+      "Get client name and settings"
+      []
+      (def msg (recv))
+      (def leader (get msg 0))
+      (if (= 0xFF leader)
+        (let [opts (-> msg (slice 1) parse)]
+          (set auto-flush (get opts :auto-flush))
+          (set name (get opts :name)))
+        (set name msg)))
+
+    (defn getline-async
+      [prmpt buf]
+      (if auto-flush
+        (flush1)
+        (if is-first # step 6b. is redundant with auto-flush, but needed for clients like Conjure.
+          (set is-first false)
+          (let [b (get outbuf 0)]
+            (when (or (= b 0xFF) (= b 0xFE))
+              (buffer/blit outbuf outbuf 1 0 -1)
+              (put outbuf 0 0xFE))
+            (send outbuf)
+            (buffer/clear outbuf))))
+      (send prmpt)
+      (var ret nil)
+      (while (def msg (recv))
+        (cond
+          (= 0xFF (in msg 0))
+          (send (string/format "%j" (-> msg (slice 1) parse eval protect)))
+          (= 0xFE (in msg 0))
+          (do
+            (def cmd (peg/match cmd-peg msg 1))
+            (if (one? (length cmd))
+              (set ret (first cmd))
+              (set ret cmd))
+            (break))
+          (do (buffer/push-string buf msg) (break))))
+      ret)
+
+    (defn chunk
+      [buf p]
+      (def delim (parser/state p :delimiters))
+      (def lno ((parser/where p) 0))
+      (getline-async (string name ":" lno ":" delim " ") buf))
+
+    # Run REPL session
+    (spawn-nursery
+      nurse
+      # Get name and client settings
+      (set name (or (get-name) (break)))
+      (put all-connections stream name)
+      (while (get name-set name)
+        (set name (string name (gensym))))
+      (put name-set name true)
+      (xprint efile "client " name " connected")
+      (def e
+        (try (coerce-to-env env name stream)
+          ([err fib]
+            (xprint efile err)
+            (debug/stacktrace fib "coerce-to-env failed" ""))))
+      (def p (parser/new))
+
+      # Print welcome message
+      (when (and welcome-msg auto-flush)
+        (def msg
+          (if (bytes? welcome-msg)
+            welcome-msg
+            (welcome-msg name)))
+        (when msg
+          (send (string/format
+                  "\xFF%s"
+                  msg))))
+
+      # REPL run-conext
+      (->
+        (run-context
+          {:env e
+           :chunks chunk
+           :on-status (make-onsignal getline-async e e 1)
+           :on-compile-error (wrapio bad-compile)
+           :on-parse-error (wrapio bad-parse)
+           :evaluator
+           (fn evaluate-wrapped [x &]
+             (setdyn :out outbuf)
+             (setdyn :err outbuf)
+             (if auto-flush
+               (do
+                 (set keep-flushing true)
+                 (go-nursery nurse flusher)
+                 (edefer (set keep-flushing false)
+                   (def result (x))
+                   (set keep-flushing false)
+                   (flush1)
+                   result))
+               (x)))
+           :source "repl"
+           :parser p})
+        coro
+        (fiber/setenv (table/setproto @{:out outbuf :err outbuf :parser p} e))
+        resume))
+
+    # Wait for nursery
+    (protect (join-nursery nurse))
+
+    # Clean up
+    (disconnect-stream stream))
+
+  (defer (disconnect-all) (server-ctor host port repl-handler)))
 
 (defn- server-single-impl
   "Short-hand for serving up a a repl that has a single environment table in it. `env`
