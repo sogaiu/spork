@@ -128,6 +128,7 @@
   (default host default-host)
   (default port default-port)
   (eprint "Starting networked repl server on " host ", port " port "...")
+  (def efile (dyn *err* stderr))
   (def name-set @{})
   (def syspath (dyn :syspath))
   (server-ctor
@@ -215,11 +216,11 @@
         (while (get name-set name)
           (set name (string name (gensym))))
         (put name-set name true)
-        (eprint "client " name " connected")
+        (xprint efile "client " name " connected")
         (def e
           (try (coerce-to-env env name stream)
             ([err fib]
-              (eprint err)
+              (xprint efile err)
               (debug/stacktrace fib "coerce-to-env failed" ""))))
         (def p (parser/new))
         # Print welcome message
@@ -267,7 +268,7 @@
       (protect (:write stream ""))
       (protect (:close stream))
       (put name-set name nil)
-      (eprint "closing client " name)
+      (xprint efile "closing client " name)
       (when cleanup (cleanup stream)))))
 
 (defn- server-single-impl
