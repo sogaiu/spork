@@ -374,6 +374,7 @@
 (defn logger
   "Creates a logging middleware. The logger middleware prints URL route, return status, and elapsed request time."
   [nextmw]
+  (def f (dyn *out* stdout))
   (fn logger-mw [req]
     (def {:path path
           :method method} req)
@@ -382,8 +383,8 @@
     (def end-clock (os/clock))
     (def elapsed (string/format "%.3f" (* 1000 (- end-clock start-clock))))
     (def status (or (get ret :status) 200))
-    (print method " " status " " path " elapsed " elapsed "ms")
-    (flush)
+    (xprint f method " " status " " path " elapsed " elapsed "ms")
+    (file/flush f)
     ret))
 
 (def cookie-grammar

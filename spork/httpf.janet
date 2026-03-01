@@ -269,11 +269,11 @@
   (def on-connection (get server :on-connection))
   (unless (curenv) (fiber/setenv (fiber/current) @{}))
   (def cur (curenv))
-  (eprintf "listening on %V:%V..." host port)
+  (eprintf "listening on %V:%V with %V workers..." host port (or n-workers "default"))
   (def s (net/listen host port))
   (put server :server s)
   (put server :close (fn close [svr] (:close s) svr))
-  (defer (:close s) # handle ev/cancel gracefully
+  (defer (:close server) # handle ev/cancel gracefully
     (case n-workers
       nil (net/accept-loop s (fn [conn] (fiber/setenv (fiber/current) cur) (on-connection conn)))
       1 (forever (on-connection (net/accept s)))

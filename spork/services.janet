@@ -40,7 +40,7 @@
   (def f (get service :logfile))
   (eprintf "%s from service %s: %.4q" sig service-name msg)
   (with-dyns [*err* f]
-    (debug/stacktrace fiber msg "signal: "))
+    (debug/stacktrace fiber msg ""))
   (put service :last-msg msg)
   (file/flush f))
 
@@ -107,8 +107,8 @@
     (put service :env (curenv))
     (put service :started-at (os/time))
     (main-function ;args))
-  (def service @{:name service-name :logfile logfile :main main-function :args args})
-  (def f 
+  (def service @{:name service-name :logfile logfile :logpath logpath :main main-function :args args})
+  (def f
     (with-dyns []
       (ev/go wrapper service (get manager :supervisor))))
   (put service :fiber f)
@@ -199,6 +199,29 @@
   (assert (= :core/file (type f)))
   (os/execute [prog ;args] :px {:out f :err f}))
 
+# TODO - move to ev-utils?
+(defn- thread-with-cancel
+  ```
+  Same as ev/thread, but creates a threaded channel that allows cancelling the fiber inside the thread. There
+  is a fiber A -> thread -> fiber B relationship where cancelling fiber A should also cancel
+  fiber B.
+  ```
+  [f]
+  (def cancel-chan (ev/thread-chan))
+  (defn g
+    []
+    (def root (fiber/root))
+    (ev/go |(ev/cancel root (ev/take cancel-chan))) # messages to this thread will cancel the root fiber
+    (f))
+  (defn body [] (ev/thread g))
+  (def cancel-fib (fiber/new body :ti))
+  (def r (resume cancel-fib))
+  (if (= (fiber/status cancel-fib) :dead)
+    r
+    (do
+      (ev/give cancel-chan r)
+      (propagate r cancel-fib))))
+
 (defn run-module-in-thread
   ``
   A service entry function that will run on a module's function on a new thread.
@@ -210,26 +233,32 @@
   ``
   [module-name &opt func & args]
   (default func 'main)
-  (def f (assert (dyn *out*)))
-  (assert (= :core/file (type f)))
+  (def svc (dyn *current-service*))
+  (def logpath (get svc :logpath))
+  (prin "starting new thread\n")
+  (flush)
   (def sp (dyn *syspath*))
   (def tid (dyn :task-id))
-  (ev/do-thread
-    (try
-      (do
-        (setdyn *err* f)
-        (setdyn *out* f)
-        (setdyn *syspath* sp)
-        (setdyn *pretty-format* "%.5q")
-        (setdyn :task-id tid)
-        (def main (module/value (require module-name) (symbol func)))
-        (setdyn *args* [module-name ;args])
-        (main ;(dyn *args*)))
-      ([err f]
-       (debug/stacktrace f err "in worker thread: ")
-       (file/flush f) # flush f after making error stack trace
-       (propagate f err)))
-    (file/flush f)))
+  (thread-with-cancel
+    (fn :thread
+      []
+      (def g (file/open logpath :ab))
+      (try
+        (do
+          (setdyn *err* g)
+          (setdyn *out* g)
+          (setdyn *syspath* sp)
+          (setdyn *pretty-format* "%.5q")
+          (setdyn :task-id tid)
+          (def main (module/value (require module-name) (symbol func)))
+          (setdyn *args* [module-name ;args])
+          (main ;(dyn *args*)))
+        ([err f]
+          (debug/stacktrace g err "")
+          (file/flush g) # flush f after making error stack trace
+          (propagate f err)))
+      (xprin g "finished module in thread!\n")
+      (file/flush g))))
 
 ###
 ### Reporting
@@ -274,4 +303,5 @@
     (seq [service-name :in (sort (all-services))]
       (get services service-name)))
   (def rows (filter filter-fn raw-rows))
-  (misc/print-table rows service-columns service-header-map service-column-map))
+  (misc/print-table rows service-columns service-header-map service-column-map)
+  (flush))
