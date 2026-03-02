@@ -93,6 +93,7 @@
   (eprint "starting service " service-name " - logs at " logpath)
   (def logfile (file/open logpath :ab))
   (var wrapper-called false)
+  (def new-env (make-env))
   (defn wrapper
     [service]
     (set wrapper-called true)
@@ -109,12 +110,10 @@
     (put service :env (curenv))
     (put service :started-at (os/time))
     (main-function ;args))
-  (def service @{:name service-name :logfile logfile :logpath logpath
+  (def f (fiber/new wrapper :t new-env))
+  (def service @{:name service-name :logfile logfile :logpath logpath :fiber f
                  :main main-function :args args :completion-channel (ev/thread-chan 1)})
-  (def f
-    (with-dyns []
-      (ev/go wrapper service (get manager :supervisor))))
-  (put service :fiber f)
+  (ev/go f service (get manager :supervisor))
   (put (get manager :services) service-name service)
   (put (get manager :services-inverse) service service-name)
   (ev/sleep 0) # one loop so that wrapper has been called
@@ -280,6 +279,7 @@
           (setdyn *syspath* sp)
           (setdyn *pretty-format* "%.5q")
           (setdyn :task-id tid)
+          # TODO - allow easily setting title of service
           (def main (module/value (require module-name) (symbol func)))
           (setdyn *args* [module-name ;args])
           (main ;(dyn *args*)))
@@ -296,8 +296,9 @@
 
 (defn all-services
   "Get a list of running services"
-  []
-  (keys (get (get-manager) :services)))
+  [&opt manager]
+  (default manager (get-manager))
+  (keys (get manager :services)))
 
 (defn- format-time
   "Convert an integer time since epoch to readable string."
@@ -313,6 +314,14 @@
                  year (inc month) (inc month-day)
                  hours minutes seconds))
 
+(defn- get-title
+  [_ service]
+  (when-let [t (get service :title)]
+    (break t))
+  (when-let [f (get service :fiber)]
+    (when-let [e (fiber/getenv f)]
+      (get e :title))))
+
 (def- service-columns [:name :title :status :last-msg :started-at])
 (def- service-header-map
   {:name "Name"
@@ -321,16 +330,17 @@
    :last-msg "Last Error"
    :started-at "Started At"})
 (def- service-column-map
-  {:started-at (fn [timestamp _row] (format-time timestamp))})
+  {:started-at (fn [timestamp _row] (format-time timestamp))
+   :title get-title})
 
 (defn print-all
   "Print a table of all running services."
-  [&opt filter-fn]
+  [&opt manager filter-fn]
   (default filter-fn (fn [&] true))
-  (def manager (get-manager))
+  (default manager (get-manager))
   (def services (get manager :services))
   (def raw-rows
-    (seq [service-name :in (sort (all-services))]
+    (seq [service-name :in (sort (all-services manager))]
       (get services service-name)))
   (def rows (filter filter-fn raw-rows))
   (misc/print-table rows service-columns service-header-map service-column-map)

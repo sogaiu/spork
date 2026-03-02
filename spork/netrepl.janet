@@ -41,9 +41,8 @@
 (defn- serve-and-wait
   "Alternative to net/server that suspends the fiber until the server is closed."
   [host port handler]
-  (def s (net/listen host port))
-  (net/accept-loop s handler)
-  (:close s)
+  (with [s (net/listen host port)]
+    (net/accept-loop s handler))
   nil)
 
 # NETREPL Protocol
@@ -127,17 +126,24 @@
   [server-ctor &opt host port env cleanup welcome-msg]
   (default host default-host)
   (default port default-port)
+  (def main-env (curenv))
   (eprint "Starting networked repl server on " host ", port " port "...")
   (def efile (dyn *err* stderr))
   (def name-set @{})
-  (def syspath (dyn :syspath))
+  #(def syspath (dyn :syspath))
   (def all-connections @{})
+
+  (defn set-title
+    []
+    (put main-env :title (string/format "%d connections" (length all-connections))))
+  (set-title)
 
   (defn disconnect-stream
     [stream]
     (def name (get all-connections stream))
     (unless name (break)) # no double free
     (put all-connections stream nil)
+    (set-title)
     (protect (:write stream ""))
     (protect (:close stream))
     (unless (= name stream)
@@ -153,9 +159,10 @@
   (defn repl-handler [stream]
 
     # Setup closures and state
-    (setdyn :syspath syspath)
+    #(setdyn :syspath syspath)
     (var name "<unknown>")
     (put all-connections stream name)
+    (set-title)
     (var last-flush 0)
     (def outbuf @"")
     (def nurse (nursery))
