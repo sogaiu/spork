@@ -108,6 +108,7 @@
       (++ work-count))
     needs-build)
   (each target targets (needs-build? target))
+  (var bad-return false)
   (default n-workers 1)
 
   (defn worker
@@ -136,6 +137,7 @@
             :bad)))
 
       (when (= :bad result)
+        (set bad-return true)
         (each o (get rule :outputs [])
           (protect (os/rm o)))
         (repeat n-workers (ev/give q nil))
@@ -155,6 +157,9 @@
     (def fib (ev/go worker i super))
     (put fibers fib fib))
   (wait-for-fibers super fibers)
+
+  (if bad-return
+    (error "failed to build"))
 
   targets-built)
 
