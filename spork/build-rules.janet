@@ -119,18 +119,29 @@
       (def rule (get all-targets target))
       (def dependent-set (get dependents target ()))
       (def r (assert (get rule :recipe)))
-      (edefer
-        (do
-          (each o (get rule :outputs [])
-            (protect (os/rm o)))
-          (repeat n-workers (ev/give q nil)))
-        # Check that all inputs exists
-        (make-sure-exists rules " is missing as input" (get rule :inputs []))
-        (if (indexed? r)
-          (each rr r (rr))
-          (r))
-        # Make sure all outputs were created
-        (make-sure-exists rules " was not created by the rule" (get rule :outputs [])))
+
+      (def result
+        (try
+          (do
+            # Check that all inputs exists
+            (make-sure-exists rules " is missing as input" (get rule :inputs []))
+            (if (indexed? r)
+              (each rr r (rr))
+              (r))
+            # Make sure all outputs were created
+            (make-sure-exists rules " was not created by the rule" (get rule :outputs []))
+            :good)
+          ([err f]
+            (debug/stacktrace f err (string/format "rule %V failed: " target))
+            :bad)))
+
+      (when (= :bad result)
+        (each o (get rule :outputs [])
+          (protect (os/rm o)))
+        (repeat n-workers (ev/give q nil))
+        (set work-count 0)
+        (break))
+
       (array/push targets-built target)
       (eachk next-target dependent-set
         (-- (dep-counts next-target))
