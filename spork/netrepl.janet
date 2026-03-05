@@ -411,11 +411,12 @@
 (defn client
   "Connect to a repl server. The default host is \"127.0.0.1\" and the default port
   is \"9365\"."
-  [&opt host port name]
+  [&opt host port name connect]
   (default host default-host)
   (default port default-port)
+  (default connect net/connect)
   (default name (string "[" host ":" port "]"))
-  (with [stream (net/connect host port)]
+  (with [stream (connect host port)]
     (def recv (make-recv-client stream))
     (def send (make-send stream))
     (defn send-recv
