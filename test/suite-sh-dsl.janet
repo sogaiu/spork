@@ -30,6 +30,9 @@
 
   # Environment variables
   (assert ($? BONKERS=1 ,janet -e "(assert (os/getenv `BONKERS`))") "setting env vars works 1")
+  (assert ($? BONKERS=10 ,janet -e "(assert (= `10` (os/getenv `BONKERS`)))") "setting env vars works 2")
+  (def x 10)
+  (assert ($? BONKERS=,x ,janet -e "(assert (= `10` (os/getenv `BONKERS`)))") "setting env vars works 3")
   (assert (not ($? ,janet -e "(assert (os/getenv `BONKERS`))" :err-to-out > ,(sh/devnull))) "setting env vars works 2")
   (os/setenv "BONKERS" "2")
   (assert (deep= @"2" ($<_ echo $BONKERS)) "passing env vars works 1")

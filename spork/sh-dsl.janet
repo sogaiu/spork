@@ -229,7 +229,9 @@
       (s (and (empty? cmd-buffer) (bytes? s) (peg/match parse-env-set-peg s)))
       (let [[k v] (peg/match parse-env-set-peg s)]
         (put tab :has-envvar true)
-        (put tab k (parse-token (if (symbol? s) (symbol v) v))))
+        (if (and (symbol? s) (= "" v)) # empty v binding means next arg is the value
+          (set tabkey k)
+          (put tab k (parse-token (if (symbol? s) (symbol v) v)))))
       # Pipe
       ['short-fn x]
       (do (unless (empty? cmd-buffer) (next-cmd)) (look-token x))
@@ -238,10 +240,18 @@
 
   # Parse tokens and build pipeline data
   (each t tokens
-    (if tabkey
+    (cond
+      # Env var
+      (string? tabkey)
+      (do
+        (set (tab tabkey) ~(,string ,(parse-token t)))
+        (set tabkey nil))
+      # Redirection
+      tabkey
       (do
         (set (tab tabkey) (parse-token t))
         (set tabkey nil))
+      # Default
       (look-token t)))
 
   # Handle last cmd
