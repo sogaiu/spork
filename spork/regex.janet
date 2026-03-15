@@ -133,7 +133,7 @@
   (def [res] (peg/match peg pattern))
   res)
 
-(defn compile
+(defn compile :shadow
   "Compile a subset of regex to a PEG if pattern is a string.
   If pattern is a PEG, will return the PEG as is."
   [pattern]
@@ -141,12 +141,12 @@
     (peg/compile (source pattern))
     pattern))
 
-(defn match
+(defn match :shadow
   "Similar to peg/match, but for regexes."
   [reg text &opt start]
   (peg/match (compile reg) text (or start 0)))
 
-(defn find
+(defn find :shadow
   "Similar to peg/find, but for regexes."
   [reg text &opt start]
   (peg/find (compile reg) text (or start 0)))

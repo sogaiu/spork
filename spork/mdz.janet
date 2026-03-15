@@ -293,8 +293,8 @@
   # Eval body of markup
   (def contents @[])
   (eval1 ~(do ,;(map |~(,array/push ',contents ,$) (slice matches 1))))
-  (def markup ((get front-matter :post-process identity) contents))
-  (put env *markup-dom* markup)
+  (def markup-dom ((get front-matter :post-process identity) contents))
+  (put env *markup-dom* markup-dom)
   env)
 
 ###

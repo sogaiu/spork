@@ -275,7 +275,7 @@
        (var ,res ,val)
        ,;(map
            (fn [[cnd ope]]
-             (def ope (if (tuple? ope) ope (tuple ope)))
+             (def ope :shadow (if (tuple? ope) ope (tuple ope)))
              (tuple
                'if cnd
                (tuple 'set res
@@ -298,7 +298,7 @@
        (var ,res ,val)
        ,;(map
            (fn [[cnd ope]]
-             (def ope (if (tuple? ope) ope (tuple ope)))
+             (def ope :shadow (if (tuple? ope) ope (tuple ope)))
              (tuple
                'if cnd
                (tuple 'set res (tuple ;ope res))))
@@ -311,8 +311,8 @@
   arguments and setting its prototype to `prototype`.
   Factory function for creating new objects from prototypes.
   ```
-  [prototype & pairs]
-  ~(,table/setproto (,table ,;pairs) ,prototype))
+  [prototype & kvpairs]
+  ~(,table/setproto (,table ,;kvpairs) ,prototype))
 
 (defmacro do-var
   ```
@@ -434,11 +434,11 @@
   (def usable-alphabet (slice int-alphabet 0 base))
   (var value 0)
   (each char str
-    (def char
+    (def c
       (if (<= (chr "A") char (chr "Z"))
         (+ char (- (chr "a") (chr "A")))
         char))
-    (def digit (index-of char usable-alphabet))
+    (def digit (index-of c usable-alphabet))
     (if (or (nil? digit) (> digit base))
       (error "malformed integer"))
     (set value (+ (* value base) digit)))
@@ -457,14 +457,14 @@
       (+
         (math/ceil (/ (math/log (math/abs int)) (math/log base)))
         (if (< int 0) 1 0))))
-  (var int int)
-  (def ngtv? (< int 0))
+  (var intv int)
+  (def ngtv? (< intv 0))
   (if ngtv?
-    (set int (- int)))
-  (while (not= int 0)
-    (def digit (mod int base))
+    (set intv (- intv)))
+  (while (not= intv 0)
+    (def digit (mod intv base))
     (buffer/push buf (int-alphabet digit))
-    (set int (int/ int base)))
+    (set intv (int/ intv base)))
   (if ngtv?
     (buffer/push buf "-"))
   (string/reverse buf))
@@ -613,8 +613,8 @@
       (put colmap name mapping)))
   (def new-data-frame @{row-col ordered-rows})
   (each col columns
-    (def vals (get colmap col @{}))
-    (def data-column (map vals ordered-rows))
+    (def col-vals (get colmap col @{}))
+    (def data-column (map col-vals ordered-rows))
     (put new-data-frame col data-column))
   new-data-frame)
 

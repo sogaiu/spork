@@ -143,10 +143,10 @@
 
 (defn- get-cachedir
   [url bundle-type tag]
-  (def url (if (= tag :file) (os/realpath url) url)) # use absolute paths for file caches
+  (def url1 (if (= tag :file) (os/realpath url) url)) # use absolute paths for file caches
   (def cache (path/join (dyn *syspath*) ".cache"))
   (os/mkdir cache)
-  (def id (filepath-replace (string bundle-type "_" tag "_" url)))
+  (def id (filepath-replace (string bundle-type "_" tag "_" url1)))
   (path/join cache id))
 
 (defn download-bundle
@@ -302,8 +302,8 @@
   (when did-shim
     # patch deps after installing all jpm dependencies. This allows the bundle/* module to track dependencies, and
     # prevent things like uninstalling a dependency, breaking another installed package.
-    (def deps (seq [d :in jpm-deps] (jpm-dep-to-bundle-dep d)))
-    (def deps (filter identity deps))
+    (def deps-or-nils (seq [d :in jpm-deps] (jpm-dep-to-bundle-dep d)))
+    (def deps (filter identity deps-or-nils))
     (unless (index-of "spork" deps)
       # if spork is not installed, we are installing to a different tree.
       (when (bundle/installed? "spork") (array/push deps "spork")))

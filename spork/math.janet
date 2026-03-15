@@ -502,36 +502,36 @@
   in permutation distribution
   ```
   [xs ys &opt a k]
-  (let [xs (if (= :ta/view (type xs)) (:slice xs) xs)
-        ys (if (= :ta/view (type ys)) (:slice ys) ys)]
-    (default k 1e4)
-    (default a :two-side)
-    (def mx (mean xs))
-    (def my (mean ys))
-    (def ts (- mx my))
-    (def tsd @[])
-    (def ad (array/concat @[] xs ys))
-    (def mi (math/floor (/ (length ad) 2)))
+  (def xs :shadow (if (= :ta/view (type xs)) (:slice xs) xs))
+  (def ys :shadow (if (= :ta/view (type ys)) (:slice ys) ys))
+  (default k 1e4)
+  (default a :two-side)
+  (def mx (mean xs))
+  (def my (mean ys))
+  (def ts (- mx my))
+  (def tsd @[])
+  (def ad (array/concat @[] xs ys))
+  (def mi (math/floor (/ (length ad) 2)))
+  (for i 0 k
+    (shuffle-in-place ad)
+    (def pl (array/slice ad 0 mi))
+    (def pr (array/slice ad mi))
+    (set (tsd i) (- (mean pl) (mean pr))))
+  (var nes 0)
+  (case a
+    :two-side
     (for i 0 k
-      (shuffle-in-place ad)
-      (def pl (array/slice ad 0 mi))
-      (def pr (array/slice ad mi))
-      (set (tsd i) (- (mean pl) (mean pr))))
-    (var nes 0)
-    (case a
-      :two-side
-      (for i 0 k
-        (if (>= (math/abs (tsd i)) (math/abs ts))
-          (++ nes)))
-      :greater
-      (for i 0 k
-        (if (>= (tsd i) ts)
-          (++ nes)))
-      :lesser
-      (for i 0 k
-        (if (<= (tsd i) ts)
-          (++ nes))))
-    (/ nes k)))
+      (if (>= (math/abs (tsd i)) (math/abs ts))
+        (++ nes)))
+    :greater
+    (for i 0 k
+      (if (>= (tsd i) ts)
+        (++ nes)))
+    :lesser
+    (for i 0 k
+      (if (<= (tsd i) ts)
+        (++ nes))))
+  (/ nes k))
 
 (def chi-squared-distribution-table
   "Chi Squared distribution table."
@@ -1309,7 +1309,7 @@
   [n &opt c]
   (default c 1)
   (def m 16)
-  (def zero (- n n))
+  (def zeron (- n n))
   (var [x q r] [2 1 m])
   (var xs nil)
   (var y nil)
@@ -1324,16 +1324,16 @@
       (set x (+ (mulmod x x n) c))
       (set q (mulmod q (- x y) n)))
     (*= r 2))
-  (if (= q zero)
+  (if (= q zeron)
     (while true
       (set xs (+ (mulmod xs xs n) c))
       (set q (mod (- xs y) n))
       (if (= 0 (jacobi q n)) (break))))
-  (if (= q zero)
+  (if (= q zeron)
     (pollard-rho n (+ c 1))
     (do
       (set x n)
-      (while (> q zero)
+      (while (> q zeron)
         (set* [x q] [q (mod x q)]))
       x)))
 

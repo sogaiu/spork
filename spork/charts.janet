@@ -56,13 +56,13 @@
 (defn- floorn
   "Floor mod n"
   [n x]
-  (def x (if (= 0 x) (math/abs x) x)) # no negative 0, messes up rendering!
+  (def x :shadow (if (= 0 x) (math/abs x) x)) # no negative 0, messes up rendering!
   (* (math/floor (/ x n)) n))
 
 (defn- ceiln
   "Ceil mod n"
   [n x]
-  (def x (if (= 0 x) (math/abs x) x)) # no negative 0, messes up rendering!
+  (def x :shadow (if (= 0 x) (math/abs x) x)) # no negative 0, messes up rendering!
   (* (math/ceil (/ x n)) n))
 
 # TODO - bias light or dark depending on background
@@ -169,11 +169,13 @@
   (var max-text-width 0)
   (var max-text-height 0)
   (def padding10 (* font-scale 10))
-  (each metric result
-    (def [x y] (g/measure-simple-text (formatter metric) font font-scale font-scale))
+  (each metric-coord result
+    (def [x y] (g/measure-simple-text (formatter metric-coord) font font-scale font-scale))
     (set max-text-width (max max-text-width x))
     (set max-text-height (max max-text-height y)))
-  (def min-spacing (+ padding10 (if vertical max-text-height max-text-width)))
+
+  # Recalculate
+  (def min-spacing :shadow (+ padding10 (if vertical max-text-height max-text-width)))
 
   # Retry if ticks are too close together
   (unless no-retry
@@ -254,8 +256,8 @@
   (var x padding)
   (var max-x 0)
   (each i labels
-    (def label (string (get legend-map i i)))
-    (def [text-width _] (g/measure-simple-text label font font-scale font-scale))
+    (def lab (string (get legend-map i i)))
+    (def [text-width _] (g/measure-simple-text lab font font-scale font-scale))
     (def item-width (+ padding padding padding text-width swatch-size))
     (when (> (+ x item-width) view-width)
       (unless (= i (first labels)) (+= y spacing)) # don't skip first line
@@ -263,7 +265,7 @@
     (when canvas
       (def color (get color-map i (color-hash i)))
       (g/fill-rect canvas x y swatch-size swatch-size color)
-      (g/draw-simple-text canvas (+ x swatch-size padding) (+ small-spacing y) label text-color font font-scale font-scale))
+      (g/draw-simple-text canvas (+ x swatch-size padding) (+ small-spacing y) lab text-color font font-scale font-scale))
     (+= x (+ item-width padding))
     (set max-x (max max-x x)))
   (+= y (+ font-scale padding))
@@ -321,10 +323,10 @@
   (def line-color (dyn *stroke-color* default-stroke-color))
   (def grid-color (dyn *grid-color* default-grid-color))
 
-  (def dx (- x-max x-min))
-  (def dy (- y-max y-min))
-  (assert (pos? dx))
-  (assert (pos? dy))
+  (def orig-dx (- x-max x-min))
+  (def orig-dy (- y-max y-min))
+  (assert (pos? orig-dx))
+  (assert (pos? orig-dy))
   (def font-height (let [[_ h] (g/measure-simple-text "Mg" font font-scale font-scale)] h))
   (def font-half-height (div font-height 2))
   (def tick-height (* font-scale 8))
@@ -373,8 +375,8 @@
     (g/draw-simple-text canvas padding (div (+ height w top-padding (- bottom-padding)) 2) y-label line-color font font-scale font-scale 1))
 
   # Closure to convert metric space to pixel space - only can be done after full padding calculations
-  (def scale-x (/ (- width left-padding right-padding tick-height tick-height) dx))
-  (def scale-y (- (/ (- height top-padding bottom-padding tick-height tick-height) dy)))
+  (def scale-x (/ (- width left-padding right-padding tick-height tick-height) orig-dx))
+  (def scale-y (- (/ (- height top-padding bottom-padding tick-height tick-height) orig-dy)))
   (def offset-x (- left-padding (- tick-height) (* scale-x x-min)))
   (def offset-y (- height bottom-padding tick-height (* scale-y y-min)))
   (defn convert
@@ -452,18 +454,18 @@
   (def view (g/viewport canvas
                         (+ 1 left-padding) (+ 1 top-padding)
                         (- frame-width 1) (- frame-height 1)))
-  (def scale-x (/ (- frame-width tick-height tick-height) dx))
-  (def scale-y (- (/ (- frame-height tick-height tick-height) dy)))
-  (def offset-x (- tick-height (* scale-x x-min)))
-  (def offset-y (- frame-height -1 tick-height (* scale-y y-min)))
+  (def frame-scale-x (/ (- frame-width tick-height tick-height) orig-dx))
+  (def frame-scale-y (- (/ (- frame-height tick-height tick-height) orig-dy)))
+  (def frame-offset-x (- tick-height (* frame-scale-x x-min)))
+  (def frame-offset-y (- frame-height -1 tick-height (* frame-scale-y y-min)))
   (defn view-convert
     [metric-x metric-y]
-    [(+ offset-x (* scale-x metric-x))
-     (+ offset-y (* scale-y metric-y))])
+    [(+ frame-offset-x (* frame-scale-x metric-x))
+     (+ frame-offset-y (* frame-scale-y metric-y))])
   (defn view-unconvert
     [pixel-x pixel-y]
-    [(/ (- pixel-x offset-x) scale-x)
-     (/ (- pixel-y offset-y) scale-y)])
+    [(/ (- pixel-x frame-offset-x) frame-scale-x)
+     (/ (- pixel-y frame-offset-y) frame-scale-y)])
 
   [view view-convert view-unconvert])
 
@@ -539,10 +541,10 @@
   # Draw graph
   (def xs (get data x-column))
   (assert (indexed? xs))
-  (each y-column y-columns
-    (def graph-color (get color-map y-column (color-hash y-column)))
+  (each ycol y-columns
+    (def graph-color (get color-map ycol (color-hash ycol)))
     (default x-colors (fn :default-x-colors [&] graph-color))
-    (def ys (get data y-column))
+    (def ys (get data ycol))
 
     # Collect points - handle missing ys
     (def pts @[])
@@ -555,7 +557,7 @@
           (array/push pts (math/round x1) (math/round y1)))))
 
     # Plot lines between points
-    (def line-style2 (if (dictionary? line-style) (get line-style y-column :plot) line-style))
+    (def line-style2 (if (dictionary? line-style) (get line-style ycol :plot) line-style))
     (case line-style2
 
       :stipple
@@ -726,7 +728,7 @@
   (def view (g/viewport canvas 0 title-padding width (- height title-padding)))
 
   # Draw axes
-  (def [x-min x-max y-min y-max]
+  (def [x-min x-max y-min y-max] :shadow
     (let [{:width view-width :height view-height} (g/unpack view)]
       (calculate-data-bounds data x-column y-columns
                              view-width view-height (* font-scale 20)

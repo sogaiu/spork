@@ -280,12 +280,12 @@
 
 (varfn emit-type
   [definition &opt alias]
-  (def definition (normalize-type definition))
+  (def definition :shadow (normalize-type definition))
   (match definition
     (d (string? d)) (do (prin d) (if alias (prin " " (mangle alias))))
     (d (bytes? d)) (do (prin (mangle-type d)) (if alias (prin " " (mangle alias))))
-    (t (tuple? t))
-    (match t
+    (tup (tuple? tup))
+    (match tup
       ['struct & body] (emit-struct-def nil body alias)
       ['named-struct n & body] (emit-struct-def n body alias)
       ['enum & body] (emit-enum-def nil body alias)
@@ -407,7 +407,7 @@
 (varfn emit-expression
   [form &opt noparen]
   #(tracev form)
-  (def form (expand-macro :cjanet-expression-macro form))
+  (def form :shadow (expand-macro :cjanet-expression-macro form))
   #(tracev form)
   (match form
     (f (symbol? f)) (prin (mangle (first (type-split f 'void))))
@@ -423,10 +423,10 @@
       (unless noparen (prin "("))
       (emit-struct-ctor nil (mapcat identity (sort (pairs d))))
       (unless noparen (print ")")))
-    (t (tuple? t))
+    (tup (tuple? tup))
     (do
       (unless noparen (prin "("))
-      (match t
+      (match tup
         [(bs (bops bs)) arg1 arg2 & rest] (emit-binop (bops bs) arg1 arg2 ;rest)
         [(bs (uops bs)) & rest] (emit-unop (uops bs) ;rest)
         ['literal l] (prin (string l))
@@ -447,7 +447,7 @@
         ['? c t f] (emit-ternary c t f)
         ['. v f] (emit-indexer "." v f)
         [(s (and (symbol? s) (string/has-prefix? "." s))) v] (emit-indexer "." v (symbol/slice s 1))
-        (emit-funcall t))
+        (emit-funcall tup))
       (unless noparen (prin ")")))
     (b (boolean? b)) (prinf "%j" form)
     (n (nil? n)) (prin "NULL")
@@ -465,7 +465,7 @@
 
 (varfn emit-statement
   [form]
-  (def form (expand-macro :cjanet-statement-macro form))
+  (def form :shadow (expand-macro :cjanet-statement-macro form))
   (match form
     ['def & args] (emit-declaration ;args)
     ['var & args] (emit-declaration ;args)
@@ -541,12 +541,12 @@
   (print))
 
 (defn- emit-for
-  [init cond step body]
+  [init condition step body]
   (emit-indent)
   (prin "for (")
   (emit-statement init)
   (prin "; ")
-  (emit-expression cond true)
+  (emit-expression condition true)
   (prin "; ")
   (emit-expression step true)
   (prin ") ")
@@ -562,15 +562,15 @@
 
 (varfn emit-block
   [form &opt nobracket noindent]
-  (def form (expand-macro :cjanet-block-macro form))
+  (def form :shadow (expand-macro :cjanet-block-macro form))
   (unless nobracket
     (emit-block-start))
   (match form
     ['do & body] (emit-blocks body)
-    ['while cond stm & body] (emit-while cond stm body)
-    ['for [init cond step] & body] (emit-for init cond step body)
+    ['while condition stm & body] (emit-while condition stm body)
+    ['for [init condition step] & body] (emit-for init condition step body)
     ['if & body] (emit-cond body)
-    ['switch cond & body] (emit-switch cond body)
+    ['switch condition & body] (emit-switch condition body)
     ['cond & body] (emit-cond body)
     ['return val] (emit-return val)
     ['return] (emit-return nil)
@@ -758,7 +758,7 @@
   # We should probably normalize all ctype shorthands coming in first in some way
   (if (and (tuple? ctype) (= (first ctype) '*)) # Allow for 'Type shorthand more easily.
     (register-binding-type alias ['quote (get ctype 1)] wrapfn getfn optfn))
-  (def ctype (normalize-type ctype))
+  (def ctype :shadow (normalize-type ctype))
   # (def alias (symbol alias))
   (put alias-to-ctype alias ctype)
   (put alias-or-ctype-to-wrap ctype wrapfn)

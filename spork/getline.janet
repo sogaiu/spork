@@ -297,10 +297,10 @@
     (refresh))
 
   (fn getline-fn
-    [&opt prompt buff _parser prefill]
+    [&opt prompt-str buff _parser prefill]
     (set pre-input (if prefill (generators/from-iterable prefill) @""))
     (set buf (or buff @""))
-    (set prpt (string prompt))
+    (set prpt (string prompt-str))
     (set prpt-width (rawterm/monowidth prpt))
     (unless (rawterm/isatty)
       (break (getline prpt buf)))

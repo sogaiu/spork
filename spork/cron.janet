@@ -129,16 +129,18 @@
       (bitmap-setrange bitmap (+ offset mini) (+ offset maxi))
       (do
         (each [start end step] ranges
-          (def start (if (= :* start)
-                       mini
-                       (if (and codes (string? start))
-                         (- (assert (in codes (string/ascii-lower start)) (string "invalid code " start)) offset)
-                         start)))
-          (def end (if (= :* end)
-                     maxi
-                     (if (and codes (string? end))
-                       (- (assert (in codes (string/ascii-lower end)) (string "invalid code " end)) offset)
-                       end)))
+          (def start :shadow
+            (if (= :* start)
+              mini
+              (if (and codes (string? start))
+                (- (assert (in codes (string/ascii-lower start)) (string "invalid code " start)) offset)
+                start)))
+          (def end :shadow
+            (if (= :* end)
+              maxi
+              (if (and codes (string? end))
+                (- (assert (in codes (string/ascii-lower end)) (string "invalid code " end)) offset)
+                end)))
           (assert (>= start mini) (string "invalid " debug-name ": " start))
           (assert (<= end maxi) (string "invalid " debug-name ": " end))
           (bitmap-setrange bitmap (+ offset start) (+ offset end) step))
@@ -175,7 +177,7 @@
   "Check if a given time matches a cron specifier."
   [cron &opt time local]
   (default time (os/time))
-  (def cron (if (bytes? cron) (parse-cron cron) cron))
+  (def cronb (if (bytes? cron) (parse-cron cron) cron))
   (def {:hours h
         :minutes m
         :month M
@@ -184,7 +186,7 @@
         # :year-day d
         :seconds s}
     (os/date time local))
-  (def [_ minutes hours day-of-month month day-of-week seconds dow-or-dom] cron)
+  (def [_ minutes hours day-of-month month day-of-week seconds dow-or-dom] cronb)
   (def day-correct
     (if dow-or-dom
       (or
@@ -217,7 +219,7 @@
   # Ensure correct month
   (def next-M (bitmap-cycle cron-M M))
   (when (not= next-M M)
-    (def next-y (if (< next-M M) (inc y) y))
+    (def next-y :shadow (if (<= next-M M) (inc y) y))
     (break
       (os/mktime {:hours 0 :minutes 0 :seconds 0 :month next-M :year next-y :month-day 0} local)))
 
@@ -236,21 +238,21 @@
   # Ensure correct hour
   (def next-h (bitmap-cycle cron-h h))
   (when (not= next-h h)
-    (def next-Md (if (< next-h h) (inc Md) Md))
+    (def next-Md :shadow (if (<= next-h h) (inc Md) Md))
     (break
       (os/mktime {:hours next-h :minutes 0 :seconds 0 :month M :year y :month-day next-Md} local)))
 
   # Ensure correct minute (allow hour overflows)
   (def next-m (bitmap-cycle cron-m m))
   (when (not= next-m m)
-    (def next-h (if (< next-m m) (inc h) h))
+    (def next-h :shadow (if (<= next-m m) (inc h) h))
     (break
       (os/mktime {:hours next-h :minutes next-m :seconds 0 :month M :year y :month-day Md} local)))
 
   # Ensure correct second (allow minute overflows)
   (def next-s (bitmap-cycle cron-s s))
   (when (not= next-s s)
-    (def next-m (if (< next-s s) (inc m) m))
+    (def next-m :shadow (if (<= next-s s) (inc m) m))
     (break
       (os/mktime {:hours next-h :minutes next-m :seconds next-s :month M :year y :month-day Md} local)))
 
@@ -260,10 +262,10 @@
   "Given a cron schedule, get the next instance on the cron tab after time"
   [cron &opt time local]
   (default time (os/time))
-  (def cron (if (bytes? cron) (parse-cron cron) cron))
+  (def cronb (if (bytes? cron) (parse-cron cron) cron))
   (var test-time (+ 1 time)) # 1 second resolution
   (var recur-limit 300)
-  (while (not (check cron test-time local))
+  (while (not (check cronb test-time local))
     (if (zero? (-- recur-limit)) (error "could not find next timestamp"))
-    (set test-time (next-candidate cron test-time local)))
+    (set test-time (next-candidate cronb test-time local)))
   test-time)

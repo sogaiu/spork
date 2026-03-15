@@ -84,7 +84,7 @@
 (defn add-service
   "Spawn a service"
   [service-name main-function & args]
-  (def service-name (keyword service-name))
+  (def service-name :shadow (keyword service-name))
   (def manager (get-manager))
   (if (in (get manager :services) service-name)
     (error (string "service " service-name " already exists")))
@@ -124,7 +124,7 @@
   "Stop a running service"
   [service-name &opt reason]
   (default reason "service stopped")
-  (def service-name (keyword service-name))
+  (def service-name :shadow (keyword service-name))
   (def manager (get-manager))
   (unless (in (get manager :services) service-name)
     (error (string "service " service-name " does not exist")))
@@ -144,9 +144,9 @@
         (ev/with-deadline 0 (ev/take completion-channel))
         # take end token with deadline
         (ev/with-deadline complete-time (ev/take completion-channel)))
-      ([err f]
+      ([err fib]
        (file/write logfile "no affirmative cancellation response\n")
-       (debug/stacktrace f err ""))))
+       (debug/stacktrace fib err ""))))
   (ev/chan-close completion-channel)
   (file/close logfile)
   nil)
@@ -154,7 +154,7 @@
 (defn- stop-and-start-service
   "(Re)start a service"
   [service-name restart-after reason]
-  (def service-name (keyword service-name))
+  (def service-name :shadow (keyword service-name))
   (def manager (get-manager))
   (def services (get manager :services))
   (def services-inverse (get manager :services-inverse))
@@ -175,7 +175,7 @@
 (defn remove-service
   "Remove a service"
   [service-name]
-  (def service-name (keyword service-name))
+  (def service-name :shadow (keyword service-name))
   (stop-and-start-service service-name false "service stopped for removal")
   (ev/sleep 0)
   # Remove from tables

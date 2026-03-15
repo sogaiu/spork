@@ -425,7 +425,7 @@
   * `:path` - HTTP path.
   * `:method` - HTTP method, as a string.``
   [conn handler]
-  (def handler (middleware handler))
+  (def handler-mw (middleware handler))
   (defer (:close conn)
 
     # Get request header
@@ -441,7 +441,7 @@
     (put req :connection conn)
 
     # Do something with request header
-    (def response (handler req))
+    (def response (handler-mw req))
 
     # Now send back response
     (send-response conn response @"")))
@@ -514,7 +514,7 @@
         conn (if stream-opts
                (make-conn host port stream-opts)
                (make-conn host port))]
-    (with [conn conn]
+    (defer (:close conn)
 
       # Make request
       (write-body conn buf body)

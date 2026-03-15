@@ -52,13 +52,15 @@
   [description &keys options]
 
   # Add default help option
-  (def options (merge
-                 @{"help" {:kind :flag
-                           :short "h"
-                           :help "Show this help message."
-                           :action :help
-                           :short-circuit true}}
-                 options))
+  (def options
+    :shadow
+    (merge
+      @{"help" {:kind :flag
+                :short "h"
+                :help "Show this help message."
+                :action :help
+                :short-circuit true}}
+      options))
 
   # Create shortcodes
   (def shortcodes @{})
@@ -133,9 +135,9 @@
     (case (handler :kind)
       :flag (put res name true)
       :multi (do
-               (var count (or (get res name) 0))
-               (++ count)
-               (put res name count))
+               (var counter (or (get res name) 0))
+               (++ counter)
+               (put res name counter))
       :option (if-let [arg (get args i)]
                 (do
                   (put res name arg)

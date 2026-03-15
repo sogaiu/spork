@@ -83,7 +83,7 @@
 (defn- install-buffer
   [contents dest &opt chmod-mode thunk]
   (def rules (get-rules))
-  (def contents (if (function? contents) (contents) contents))
+  (def contents :shadow (if (function? contents) (contents) contents))
   (build-rules/build-rule
     rules :install []
     (def manifest (assert (dyn *install-manifest*)))
@@ -96,7 +96,7 @@
       (errorf "collision at %s, file already exists" absdest))
     (when thunk (thunk))
     (spit absdest contents)
-    (def absdest (os/realpath absdest))
+    (def absdest :shadow (os/realpath absdest))
     (array/push files absdest)
     (when chmod-mode
       (os/chmod absdest chmod-mode))
@@ -110,7 +110,7 @@
 (defn- firstt [target] (if (indexed? target) (in target 0) target))
 (defn- rule-impl
   [target deps thunk &opt phony]
-  (def target (if phony (keyword target) target))
+  (def target :shadow (if phony (keyword target) target))
   (def rules (get-rules))
   (build-rules/build-thunk rules target deps thunk))
 
@@ -344,8 +344,8 @@
     (print "removing directory " br)
     (sh/rm br)
     (postclean))
-  (defn run-task [task]
-    (build-rules/build-run e task (dyn :workers)))
+  (defn run-task [task-name]
+    (build-rules/build-run e task-name (dyn :workers)))
   (defglobal 'install install)
   (defglobal 'build build)
   (defglobal 'check check)
@@ -376,7 +376,7 @@
   libraries."
   [&named headers prefix]
   (defn dest [s] (def bn (path/basename s)) (if prefix (path/join prefix bn) bn))
-  (def headers (if (bytes? headers) [headers] headers))
+  (def headers :shadow (if (bytes? headers) [headers] headers))
   (when prefix
     (rule :pre-install []
           (def manifest (assert (dyn *install-manifest*)))
@@ -396,7 +396,7 @@
   is truthy, will also automatically insert a correct shebang line.
   ``
   [&named main hardcode-syspath is-janet]
-  (def main (path/abspath main))
+  (def main :shadow (path/abspath main))
   (def dest (path/join "bin" (path/basename main)))
   (defn contents []
     (with [f (file/open main :rbn)]
@@ -476,9 +476,9 @@
   (def toolchain (get-toolchain))
 
   # Headers is an alias for deps functionaly, but legacy from jpm. Also signifies intent.
-  (def deps [;deps ;(or headers [])])
+  (def deps :shadow [;deps ;(or headers [])])
 
-  (def msvc-libs @[;msvc-libs])
+  (def msvc-libs :shadow @[;msvc-libs])
   (if (= :msvc toolchain)
     (array/push msvc-libs (cc/msvc-janet-import-lib)))
 
@@ -734,7 +734,7 @@ int main(int argc, const char **argv) {
   (assert (string? entry))
   (assert (string? name))
 
-  (def name (if (is-win-or-mingw) (string name ".exe") name))
+  (def name :shadow (if (is-win-or-mingw) (string name ".exe") name))
   (def bd (build-dir))
   (def dest (path/join bd name))
   (def cimage-dest (string dest ".c"))
@@ -772,11 +772,11 @@ int main(int argc, const char **argv) {
 
         # Load all native modules
         (def prefixes @{})
-        (loop [[name m] :pairs module-cache
+        (loop [[module-name m] :pairs module-cache
                :let [n (m :native)]
                :when n
                :let [prefix (gensym)]]
-          (print "found native " name " (" n ")...")
+          (print "found native " module-name " (" n ")...")
           (flush)
           (put prefixes prefix n)
           (array/push static-libs (modpath-to-static toolchain n))
@@ -790,8 +790,8 @@ int main(int argc, const char **argv) {
         (var has-cpp false)
         (def declarations @"#include <janet.h>\n")
         (def lookup-into-invocations @"")
-        (loop [[prefix name] :pairs prefixes]
-          (def meta (eval-string (slurp (modpath-to-meta toolchain name))))
+        (loop [[prefix module-name] :pairs prefixes]
+          (def meta (eval-string (slurp (modpath-to-meta toolchain module-name))))
           (if (meta :cpp) (set has-cpp true))
           (buffer/push-string lookup-into-invocations
                               "    temptab = janet_table(0);\n"
@@ -838,7 +838,7 @@ int main(int argc, const char **argv) {
             (array/push dep-libs libjanet)))
 
         # Static compilation will not work out of the box on mac, so disable with warning.
-        (def static
+        (def static :shadow
           (if (and (= (os/which) :macos) static)
             (do
               (eprint "Warning! fully static executable disabled on macos.")

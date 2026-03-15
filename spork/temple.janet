@@ -158,14 +158,14 @@
 # String templating
 #
 
-(defn compile
-  `
+(defn compile :shadow
+  ```
   Compile a Temple template into a function which will return a
   rendered buffer.
 
   The resulting function should receive the template arguments in the
   &keys format.
-  `
+  ```
   [str]
   (let [tmpl (create str (dyn :current-file))]
     (fn render

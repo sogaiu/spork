@@ -34,7 +34,7 @@
   (+= skip-n n)
   nil)
 
-(defmacro assert
+(defmacro assert :shadow
   "Overrides the default assert with some nice error handling."
   [x &opt e]
   (def xx (gensym))

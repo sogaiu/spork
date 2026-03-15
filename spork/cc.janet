@@ -739,10 +739,10 @@
         false))))
 
 (defn- search-libs-impl
-  [dynb libs]
+  [dynb libraries]
   (def ls (getsetdyn dynb))
   (def notfound @[])
-  (each lib libs
+  (each lib libraries
     (def llib (if (string/has-prefix? "-l" lib) lib (string "-l" lib)))
     (if (check-library-exists llib dynb)
       (array/push ls llib)
@@ -753,22 +753,22 @@
   "Search for libraries on the current POSIX system and configure `(dyn *libs*)`.
   This is done by checking for the existence of libraries with
   `check-library-exists`. Returns an array of libraries that were not found."
-  [& libs]
-  (search-libs-impl *libs* libs))
+  [& libraries]
+  (search-libs-impl *libs* libraries))
 
 (defn search-static-libraries
   "Search for static libraries on the current POSIX system and configure `(dyn *static-libs*)`.
   This is done by checking for the existence of libraries with
   `check-library-exists`. Returns an array of libraries that were not found."
-  [& libs]
-  (search-libs-impl *static-libs* libs))
+  [& libraries]
+  (search-libs-impl *static-libs* libraries))
 
 (defn search-dynamic-libraries
   "Search for dynamic libraries on the current POSIX system and configure `(dyn *dynamic-libraries*)`.
   This is done by checking for the existence of libraries with
   `check-library-exists`. Returns an array of libraries that were not found."
-  [& libs]
-  (search-libs-impl *dynamic-libs* libs))
+  [& libraries]
+  (search-libs-impl *dynamic-libs* libraries))
 
 ###
 ### Package Config wrapper to find libraries and set flags
@@ -795,14 +795,14 @@
 (defn pkg-config
   "Setup defines, cflags, and library flags from pkg-config."
   [& pkg-config-libraries]
-  (def cflags (pkg-config-impl "--cflags" ;pkg-config-libraries))
-  (def lflags (pkg-config-impl "--libs-only-L" "--libs-only-other" ;pkg-config-libraries))
-  (def libs (pkg-config-impl "--libs-only-l" ;pkg-config-libraries))
-  (def leftovers (search-libraries ;libs))
+  (def my-cflags (pkg-config-impl "--cflags" ;pkg-config-libraries))
+  (def my-lflags (pkg-config-impl "--libs-only-L" "--libs-only-other" ;pkg-config-libraries))
+  (def my-libs (pkg-config-impl "--libs-only-l" ;pkg-config-libraries))
+  (def leftovers (search-libraries ;my-libs))
   (unless (empty? leftovers)
     (errorf "could not find libraries %j" leftovers))
-  (setdyn *cflags* (array/concat @[] (getsetdyn *cflags*) cflags))
-  (setdyn *lflags* (array/concat @[] (getsetdyn *lflags*) lflags))
+  (setdyn *cflags* (array/concat @[] (getsetdyn *cflags*) my-cflags))
+  (setdyn *lflags* (array/concat @[] (getsetdyn *lflags*) my-lflags))
   nil)
 
 ###

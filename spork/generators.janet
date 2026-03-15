@@ -9,7 +9,7 @@
   [iterable]
   (coro (each x iterable (yield x))))
 
-(defn range
+(defn range :shadow
   "Returns a coroutine that yields a range. step is the optional step size. The default step size is 1."
   [from to &opt step]
   (default step 1)
@@ -98,7 +98,7 @@
        2 (yield-n-iterables 2 ,step ,f ,iterable ,iterables)
        3 (yield-n-iterables 3 ,step ,f ,iterable ,iterables)
        (do
-         (def keys (array/new-filled niter))
+         (def iter-keys (array/new-filled niter))
          (def call-buffer (array/new-filled niter))
          (var done false)
          (var old-key nil)
@@ -106,7 +106,7 @@
          (var new-key nil)
          (each x ,iterable
            (for i 0 niter
-             (set old-key (in keys i))
+             (set old-key (in iter-keys i))
              (set ii (in ,iterables i))
              (set new-key (next ii old-key))
              (if (nil? new-key)
@@ -114,7 +114,7 @@
                  (set done true)
                  (break))
                (do
-                 (put keys i new-key)
+                 (put iter-keys i new-key)
                  (put call-buffer i (in ii new-key)))))
            (when done (break))
            (,step (,f x ;call-buffer)))))))
@@ -123,7 +123,7 @@
   [val]
   ~(yield ,val))
 
-(defn map
+(defn map :shadow
   ```
   Returns a coroutine that yields
   (f first-element-of-iterable ;first-elements-of-iterables),
@@ -136,9 +136,10 @@
 
 (defmacro- mapcat-step
   [val]
-  ~(each x ,val (yield x)))
+  (def x (gensym))
+  ~(each ,x ,val (yield ,x)))
 
-(defn mapcat
+(defn mapcat :shadow
   ```
   Returns a coroutine that yields
   elements of (f first-element-of-iterable ;first-elements-of-iterables),
@@ -149,12 +150,12 @@
   [f iterable & iterables]
   (yield-iterables mapcat-step f iterable iterables))
 
-(defn filter
+(defn filter :shadow
   "Returns a coroutine that yields only `iterable` elements for which `(pred element)` is truthy."
   [pred iterable]
   (coro (each e iterable (if (pred e) (yield e)))))
 
-(defn take
+(defn take :shadow
   "Returns a coroutine that yields the first `n` elements from `iterable`."
   [n iterable]
   (coro
@@ -165,7 +166,7 @@
       (if (= taken n)
         (break)))))
 
-(defn take-while
+(defn take-while :shadow
   "Returns a coroutine that yields `iterable` elements while `(pred element)` is truthy."
   [pred iterable]
   (coro (each x iterable
@@ -173,12 +174,12 @@
             (yield x)
             (break)))))
 
-(defn take-until
+(defn take-until :shadow
   "Returns a coroutine that yields `iterable` elements until `(pred element)` becomes truthy."
   [pred iterable]
   (take-while (fn :pred-in-take-until [x] (not (pred x))) iterable))
 
-(defn drop
+(defn drop :shadow
   "Returns a coroutine that drops the first `n` elements from `iterable` and yields the rest of the elements."
   [n iterable]
   (coro
@@ -188,7 +189,7 @@
         (yield x)
         (+= dropped 1)))))
 
-(defn drop-while
+(defn drop-while :shadow
   "Returns a coroutine that drops `iterable` elements while `(pred element)` is truthy."
   [pred iterable]
   (coro
@@ -200,7 +201,7 @@
           (set dropping false)
           (yield x))))))
 
-(defn drop-until
+(defn drop-until :shadow
   "Return a coroutine that drops `iterable` elements until `(pred element)` becomes truthy."
   [pred iterable]
   (drop-while (fn :pred-in-drop-until [x] (not (pred x))) iterable))
@@ -218,7 +219,7 @@
       (if (nil? i) (set i (next iterable)))
       (yield (in iterable i)))))
 
-(defn interleave
+(defn interleave :shadow
   ```
   Returns a coroutine that yields the first elements of iterables, and then the second elements of iterables, and then
   the third elements of iterables, and so on until any of the given iterables doesn't have any more element.
@@ -226,7 +227,7 @@
   [iterable & iterables]
   (yield-iterables mapcat-step tuple iterable iterables))
 
-(defn interpose
+(defn interpose :shadow
   "Returns a coroutine that yields `iterable` elements. sep is yielded between each element."
   [sep iterable]
   (coro
@@ -239,7 +240,7 @@
         (yield (in iterable i))
         (set i (next iterable i))))))
 
-(defn partition
+(defn partition :shadow
   "Returns a coroutine that partitions `iterable` into arrays of size `n` and yields the arrays."
   [n iterable]
   (if (< n 1)
@@ -259,7 +260,7 @@
       (unless (empty? arr)
         (yield arr)))))
 
-(defn partition-by
+(defn partition-by :shadow
   ```
   Returns a coroutine that partitions `iterable` elements into arrays by a representative function `f` and yields the
   arrays. Partitions split when (f current-element) differs from (f previous-element).
@@ -292,7 +293,7 @@
   ~(when-let [v ,val]
      (yield v)))
 
-(defn keep
+(defn keep :shadow
   ```
   Returns a coroutine that yields truthy results among
   (pred first-element-of-iterable ;first-elements-of-iterables),

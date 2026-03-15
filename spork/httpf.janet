@@ -31,12 +31,12 @@
 
 (defn- render-jdn
   [data buf]
-  (def data (or (get data :data) data))
+  (def data :shadow (or (get data :data) data))
   (buffer/format buf "%j\n" data))
 
 (defn- render-html
   [data buf]
-  (def data (or (get data :data) data))
+  (def data :shadow (or (get data :data) data))
   (if (dictionary? data)
     (do
       (buffer/push buf "<pre><code>")
@@ -47,7 +47,7 @@
 
 (defn- render-plain-text
   [data buf]
-  (def data (or (get data :data) data))
+  (def data :shadow (or (get data :data) data))
   (assert (bytes? data))
   (buffer/push buf data))
 
@@ -263,17 +263,17 @@
 
 (defn listen
   "Start server"
-  [server &opt host port n-workers]
+  [server-table &opt host port n-workers]
   (default host "0.0.0.0")
   (default port "8000")
-  (def on-connection (get server :on-connection))
+  (def on-connection (get server-table :on-connection))
   (unless (curenv) (fiber/setenv (fiber/current) @{}))
   (def cur (curenv))
   (eprintf "listening on %V:%V with %V workers..." host port (or n-workers "default"))
   (def s (net/listen host port))
-  (put server :server s)
-  (put server :close (fn close [svr] (:close s) svr))
-  (defer (:close server) # handle ev/cancel gracefully
+  (put server-table :server s)
+  (put server-table :close (fn close [svr] (:close s) svr))
+  (defer (:close server-table) # handle ev/cancel gracefully
     (case n-workers
       nil (net/accept-loop s (fn [conn] (fiber/setenv (fiber/current) cur) (on-connection conn)))
       1 (forever (on-connection (net/accept s)))

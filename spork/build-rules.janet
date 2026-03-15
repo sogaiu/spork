@@ -186,7 +186,7 @@
       (string? target) [target]
       (indexed? target) target
       (errorf "bad target %v" target)))
-  (def target (first all-targets))
+  (def target :shadow (first all-targets))
   (def id (dyn *implicit-deps* []))
   (each d [;deps ;id ;all-targets]
     (assert (string? d) (string/format "%v: inputs and outputs must be strings" d)))

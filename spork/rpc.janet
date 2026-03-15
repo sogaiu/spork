@@ -72,12 +72,12 @@
           (spawn-nursery
             n
             (while (def msg (ev/take in-queue))
-              (def [id name args] msg)
+              (def [id call-name args] msg)
               (when (= :close id) (break))
               (try
-                (let [f (functions name)]
+                (let [f (functions call-name)]
                   (if-not f
-                    (error (string "no function " name " supported")))
+                    (error (string "no function " call-name " supported")))
                   (def result (f functions ;args))
                   (ev/give out-queue [id true result]))
                 ([err]
