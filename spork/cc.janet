@@ -672,7 +672,7 @@
       (exec-linebuffered cmd))
     (do
       (unless (dyn :quiet) (print message))
-      (with [proc (os/spawn cmd :p {:out :pipe :err :pipe})]
+      (with [proc (os/spawn (map string cmd) :p {:out :pipe :err :pipe})]
         (def [out err exit] (ev/gather
                               (ev/read (proc :out) :all)
                               (ev/read (proc :err) :all)

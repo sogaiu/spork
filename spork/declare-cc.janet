@@ -466,7 +466,7 @@
   (def rules (get-rules))
 
   # Defaults
-  (default libs ldflags)
+  (default libs (thaw ldflags))
   (default embedded @[])
   (default nostatic false)
   (default defines @{})
@@ -717,7 +717,7 @@ int main(int argc, const char **argv) {
    ldflags # alias for libs
    cflags c++flags lflags libs static-libs dynamic-libs use-rpath use-rdynamic]
 
-  (default libs ldflags)
+  (default libs (thaw ldflags))
   (default libs @[])
   (default cflags @[])
   (default lflags @[])
