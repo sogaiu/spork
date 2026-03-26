@@ -4,6 +4,7 @@ site/
 /tags
 /tasks
 temp.janet
+scratch.janet
 _develop
 _release
 _out
@@ -24,3 +25,6 @@ lockfile.jdn
 /venv
 /_cjanet
 *.log
+/*.ttf
+/*.png
+/*.jpg

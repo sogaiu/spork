@@ -61,7 +61,7 @@
 ### [x] - right-angle rotated text
 ### [ ] - color and otherwise anotated text w/ VT100 escape codes (allow for pretty printing w/ colors)
 ### [x] - remove prototype fill in default build (leave code for testing purposes)
-### [ ] - vector font rendering and arbitrarily rotated text
+### [x] - vector font rendering and arbitrarily rotated text
 ### [ ] - anti-aliasing w/ mutli-sampling and/or analysis
 ### [x] - shaders using cjanet-jit - "fill" and "stroke" shaders
 ### [x] - multithreading
@@ -84,7 +84,8 @@
 (comp-unless (dyn :shader-compile)
   (include "stb_image.h")
   (include "stb_image_write.h")
-  (include "stb_image_resize2.h"))
+  (include "stb_image_resize2.h")
+  (include "stb_truetype.h"))
 
 ###
 ### Macros
@@ -835,6 +836,13 @@
 ### code page from IBM compatible computers.
 ###
 
+(typedef OrientationTransform
+  (named-struct OrientationTransform
+    x-by-x int
+    x-by-y int
+    y-by-y int
+    y-by-x int))
+
 (typedef BitmapFont
   (struct
     gw int
@@ -894,6 +902,26 @@
     (def code:int ''c)
     (++ 'c)
     (return code)))
+
+(comp-unless (dyn :shader-compile)
+
+  (function get-orientation
+    "Make an orientation matrix"
+    [orientation:int] -> OrientationTransform
+    (switch
+      (% orientation 4)
+      0 (return (named-struct OrientationTransform x-by-x  1 x-by-y  0 y-by-y  1 y-by-x  0))
+      1 (return (named-struct OrientationTransform x-by-x  0 x-by-y -1 y-by-y  0 y-by-x  1))
+      2 (return (named-struct OrientationTransform x-by-x -1 x-by-y  0 y-by-y -1 y-by-x  0))
+      3 (return (named-struct OrientationTransform x-by-x  0 x-by-y  1 y-by-y  0 y-by-x -1))))
+
+  (function orient-xform
+    "Apply oritentation to a point"
+    [o:OrientationTransform x:*int y:*int] -> void
+    (def newx:int (+ (* o.x-by-x *x) (* o.y-by-x *y)))
+    (def newy:int (+ (* o.x-by-y *x) (* o.y-by-y *y)))
+    (set *x newx)
+    (set *y newy)))
 
 (comp-unless (dyn :shader-compile)
   (function unicode-to-cp437 :static :inline
@@ -960,38 +988,7 @@
     (def yint:int (roundi y))
     (var xx:int 0)
     (var yy:int 0)
-
-    # Inline 2x2 matrix to allow rotations
-    # Allowed mirrored?
-    # orientations:
-    #  0 - default
-    #  1 - rotate clockwise 90
-    #  2 - rotate clockwise 180
-    #  3 - rotate clockwise 270
-    (var x-by-x:int 1)
-    (var x-by-y:int 0)
-    (var y-by-y:int 1)
-    (var y-by-x:int 0)
-    (cond
-      (= 1 (% orientation 4))
-      (do
-        (set x-by-x 0)
-        (set y-by-y 0)
-        (set x-by-y -1)
-        (set y-by-x 1))
-      (= 2 (% orientation 4))
-      (do
-        (set x-by-x -1)
-        (set y-by-y -1)
-        (set x-by-y 0)
-        (set y-by-x 0))
-      (= 3 (% orientation 4))
-      (do
-        (set x-by-x 0)
-        (set y-by-y 0)
-        (set x-by-y 1)
-        (set y-by-x -1)))
-
+    (def orient:OrientationTransform (get-orientation orientation))
     (var (c (const *uint8_t)) (cast (const *uint8_t) text))
     (while *c
       (def codepoint:int (utf8-read-codepoint &c))
@@ -1008,11 +1005,11 @@
           (if (band 1 glyph-row)
             (for [(var yoff:int 0) (< yoff yscale) (++ yoff)]
               (for [(var xoff:int 0) (< xoff xscale) (++ xoff)]
-                (def text-x:int (+ (* xscale col) xx xoff))
-                (def text-y:int (+ (* yscale row) yy yoff))
-                # Apply ad-hoc rotation matrix
-                (def xxx:int (+ xint (* text-x x-by-x) (* text-y y-by-x)))
-                (def yyy:int (+ yint (* text-y y-by-y) (* text-x x-by-y)))
+                (var text-x:int (+ (* xscale col) xx xoff))
+                (var text-y:int (+ (* yscale row) yy yoff))
+                (orient-xform orient &text-x &text-y)
+                (def xxx:int (+ text-x xint))
+                (def yyy:int (+ text-y yint))
                 (when (and (>= xxx 0) (>= yyy 0) (< xxx img->width) (< yyy img->height))
                   (image-set-pixel img xxx yyy color)))))
           (set glyph-row (>> glyph-row 1))))
@@ -1452,6 +1449,251 @@
     (circle img P.x P.y (+ 0.25 thickness) ,;shader-params))
   (janet-sfree vs:*V2) # self-test for mangling of type-grafted symbols
   (return img))
+
+###
+### TrueType Text Rendering
+###
+
+(comp-unless (dyn :shader-compile)
+
+  (typedef FontPlane
+    (named-struct FontPlane
+      first-codepoint uint32_t
+      n-codepoints uint32_t
+      pdata-width uint32_t
+      pdata-height uint32_t
+      pdata *uint8_t # TODO - convert to image
+      cdata *stbtt-bakedchar))
+
+  (typedef Font
+    (named-struct Font
+      ttf-data *uint8_t
+      ttf-data-size uint32_t
+      planes *JanetTable
+      scale float))
+
+  (function gc-font :static
+    [p:*void s:size_t] -> int
+    (unused s)
+    (def font:*Font p)
+    (janet-free font->ttf-data)
+    (return 0))
+
+  (function gc-font-plane :static
+    [p:*void s:size_t] -> int
+    (unused s)
+    (def plane:*FontPlane p)
+    (janet-free plane->pdata)
+    (janet-free plane->cdata)
+    (return 0))
+
+  (function gc-mark-font :static
+    [p:*void s:size_t] -> int
+    (unused s)
+    (def font:*Font p)
+    (when font->planes
+      (janet-mark (janet-wrap-table font->planes)))
+    (return 0))
+
+  (abstract-type Font
+    :name "gfx2d/font"
+    :gcmark gc-mark-font
+    :gc gc-font)
+
+  (abstract-type FontPlane
+    :name "gfx2d/font-plane"
+    :gc gc-font-plane)
+
+  (function make-font-plane
+    "Generate a bitmap for a given codepoint range. Make atlases of chunks of codepoints
+  that are loaded dynamically as needed."
+    [font:*Font first-codepoint:uint32_t n-codepoints:uint32_t scale:float] -> *FontPlane
+    (def font-buffer:*void font->ttf-data)
+    (def cdata:*void (janet-malloc (* n-codepoints (sizeof stbtt-bakedchar))))
+    (var atlas-size:uint32_t 128)
+    (var bitmap:*uint8_t NULL)
+    (def font-scale:float (* font->scale scale))
+    (while 1
+      (set bitmap (janet-realloc bitmap (* atlas-size atlas-size)))
+      # TODO - don't reload font-buffer every-time
+      # TODO - better rect packing for less memory usage?
+      (def result:int (stbtt-BakeFontBitmap font-buffer 0 font-scale bitmap
+                                            atlas-size atlas-size first-codepoint n-codepoints cdata))
+      (if (> result 0) (break))
+      (def frac-filled:float (/ (cast float (- result)) n-codepoints))
+      (when (or (= 0.0 frac-filled) (> atlas-size (* 1024 font-scale)))
+        (janet-free bitmap)
+        (janet-free cdata)
+        (janet-panic "failed to allocate font plane atlas"))
+      (def new-size:uint32_t (* 8 (/ (cast uint32_t (+ 32 (/ atlas-size frac-filled))) 8)))
+      (if (< new-size atlas-size)
+        (set new-size (+ atlas-size 64)))
+      (set atlas-size new-size))
+    (def w:uint32_t atlas-size)
+    (def h:uint32_t atlas-size)
+
+    # Make abstract
+    (def plane:*FontPlane (janet-abstract FontPlane-ATP (sizeof FontPlane)))
+    (set plane->pdata-width w)
+    (set plane->pdata-height h)
+    (set plane->n-codepoints n-codepoints)
+    (set plane->first-codepoint first-codepoint)
+    (set plane->cdata cdata)
+    (set plane->pdata bitmap)
+
+    (return plane))
+
+  (function get-plane-for-codepoint
+    "Find a font plane that contains a given codepoint, or make one if it does not already exist."
+    [font:*Font codepoint:uint32_t scale:float] -> *FontPlane
+    (var small-scale:int (cast int scale))
+    (if (< small-scale 1) (set small-scale 1))
+    (def plane-key:uint32_t (+ (<< small-scale 22) (>> codepoint 10)))
+    (def check:Janet (janet-table-get font->planes (janet-wrap-number plane-key)))
+    (when (janet-checktype check JANET_ABSTRACT)
+      (return (cast *FontPlane (janet-unwrap-abstract check))))
+    # No plane found, make one
+    (def first-codepoint:uint32_t (<< plane-key 10))
+    (def n-codepoints:uint32_t 1024) # 2^10
+    (when (= 0 first-codepoint)
+      (+= first-codepoint 32)
+      (-= n-codepoints 32))
+    (def plane:*FontPlane (make-font-plane font first-codepoint n-codepoints scale))
+    (janet-table-put font->planes (janet-wrap-number plane-key) (janet-wrap-abstract plane))
+    (return plane))
+
+  (cfunction load-font
+    "Load a font from disk and create compressed font. A range of code points must be loaded ahead of time."
+    [path:cstring &opt font-scale:float=12.0] -> *Font
+
+    # Load font data from disk
+    # TODO - allow passing in buffer from Janet
+    (def font-buffer:*uint8_t (janet-malloc (<< 1 26)))
+    (def f:*FILE (fopen path "rb"))
+    (unless f (janet-panic "no font file found"))
+    (def nread:size_t (fread (cast *char font-buffer) 1 (<< 1 26) f))
+    (fclose f)
+    (set font-buffer (janet-realloc font-buffer nread))
+
+    # Make abstract
+    (def font:*Font (janet-abstract Font-ATP (sizeof Font)))
+    (set font->ttf-data font-buffer)
+    (set font->planes (janet-table 10))
+    (set font->scale font-scale)
+    (set font->ttf-data-size nread)
+
+    (return font))
+
+  (typedef TextMeasure
+    (named-struct TextMeasure
+      xmin int32_t
+      ymin int32_t
+      width int32_t
+      height int32_t))
+
+  (function measure-text-impl :static
+    "Measure text and get it's bounds"
+    [font:*Font (cursor (const *uint8_t)) scale:float orientation:int] -> TextMeasure
+    (var fx:float 0.0)
+    (var fy:float 0.0)
+    (var min-fx:float 0.0)
+    (var min-fy:float 0.0)
+    (var max-fx:float 0.0)
+    (var max-fy:float 0.0)
+    (var fp:*FontPlane NULL)
+    (var cp:uint32_t 0)
+    (while *cursor
+      (set cp (utf8-read-codepoint &cursor))
+      (if (not cp) (break))
+      # Cache last font plane to avoid hash table lookups (probably not that helpful, should bench)
+      (unless (and fp (>= cp fp->first-codepoint) (< cp (+ fp->first-codepoint fp->n-codepoints)))
+        (set fp (get-plane-for-codepoint font cp scale)))
+      (def q:stbtt-aligned-quad)
+      (stbtt-GetBakedQuad fp->cdata fp->pdata-width fp->pdata-height
+                          (- cp fp->first-codepoint)
+                          &fx &fy
+                          &q 0)
+      (set min-fx (? (< q.x0 min-fx) q.x0 min-fx))
+      (set min-fy (? (< q.y0 min-fy) q.y0 min-fy))
+      (set max-fx (? (> q.x1 max-fx) q.x1 max-fx))
+      (set max-fy (? (> q.y1 max-fy) q.y1 max-fy)))
+    (var w:int32_t (cast int32_t (+ 0.5 (- max-fx min-fx))))
+    (var h:int32_t (cast int32_t (+ 0.5 (- max-fy min-fy))))
+    (switch (% orientation 4)
+      0 (break)
+      1 (do
+          (swap w h int32_t)
+          (set min-fx min-fy)
+          (set min-fy (- max-fx))
+          (break))
+      2 (do
+          (set min-fx (- max-fx))
+          (set min-fy (- max-fy))
+          (break))
+      3 (do
+          (swap w h int32_t)
+          (set min-fx (- max-fy))
+          (set min-fy max-fx)
+          (break)))
+    (return (named-struct TextMeasure xmin min-fx ymin min-fy width w height h)))
+
+  (cfunction measure-text
+    "Measure how large a piece of text would be when rasterized. Returns a 2-tuple of [width height]"
+    [font:*Font text:cstring &opt scale:float=1.0 orientation:int=0] -> JanetTuple
+    (var (cursor (const *uint8_t)) (cast (const *uint8_t) text))
+    (def measure:TextMeasure (measure-text-impl font cursor scale orientation)) # always measure 0 orientation
+    (def tup:*Janet (janet-tuple-begin 2))
+    (set (aref tup 0) (janet-wrap-number measure.width))
+    (set (aref tup 1) (janet-wrap-number measure.height))
+    (return (janet-tuple-end tup)))
+
+  (cfunction draw-text
+    "Render text to an image"
+    [image:*Image font:*Font x:double y:double text:cstring &opt color:uint32_t=0xFFFFFFFF scale:float=1.0 orientation:int=0] -> *Image
+    (var (cursor (const *uint8_t)) (cast (const *uint8_t) text))
+    (var fp:*FontPlane NULL)
+    (var cp:uint32_t 0)
+    (def orient:OrientationTransform (get-orientation orientation))
+    (def measure:TextMeasure (measure-text-impl font cursor scale 0))
+    # Shift origin to match simple text - by default, text origin is header not baseline
+    (var fx:float (- measure.xmin))
+    (var fy:float (- measure.ymin))
+    (while *cursor
+      (set cp (utf8-read-codepoint &cursor))
+      (if (not cp) (break))
+      # Cache last font plane to avoid hash table lookups (probably not that helpful, should bench)
+      (unless (and fp (>= cp fp->first-codepoint) (< cp (+ fp->first-codepoint fp->n-codepoints)))
+        (set fp (get-plane-for-codepoint font cp scale)))
+      (def q:stbtt-aligned-quad)
+      (stbtt-GetBakedQuad fp->cdata fp->pdata-width fp->pdata-height
+                          (- cp fp->first-codepoint)
+                          &fx &fy
+                          &q 0)
+      # blit the quad
+      (def dx:int (cast int (+ 0.5 (- q.x1 q.x0))))
+      (def dy:int (cast int (+ 0.5 (- q.y1 q.y0))))
+      (def x0:int (cast int (+ 0.5 q.x0)))
+      (def y0:int (cast int (+ 0.5 q.y0)))
+      (def s0:int (cast int (+ 0.5 (* fp->pdata-width q.s0))))
+      (def t0:int (cast int (+ 0.5 (* fp->pdata-height q.t0))))
+      (polymorph image->channels [1 2 3 4]
+        (for [(def yy:int 0) (<= yy dy) (++ yy)]
+          (for [(def xx:int 0) (<= xx dx) (++ xx)]
+            (def font-alpha:uint8_t (aref fp->pdata (+ (* (+ t0 yy) fp->pdata-width) s0 xx)))
+            (when (not= 0 font-alpha)
+              # Anti-aliasing alpha blending
+              (def col:Color (colorsplit color))
+              (def alpha:uint8_t (/ (* (cast uint32_t font-alpha) (cast uint32_t col.a)) 255))
+              (def colora:uint32_t (colorjoin col.r col.g col.b alpha))
+              # Final transform for text
+              (var outx1:int (+ x0 xx))
+              (var outy1:int (+ y0 yy))
+              (orient-xform orient &outx1 &outy1)
+              (def outx:int (+ x outx1))
+              (def outy:int (+ y outy1))
+              (def oldcolor:uint32_t (image-get-pixel-bc image outx outy))
+              (image-set-pixel-bc image outx outy (blend-over oldcolor colora)))))))
+    (return image))) # end dyn shader compile
 
 (comp-unless (dyn :shader-compile)
   (module-entry "gfx2d"))
