@@ -1734,7 +1734,7 @@
 
   (cfunction draw-text
     "Render text to an image"
-    [image:*Image font:*Font x:double y:double text:cstring &opt color:uint32_t=0xFFFFFFFF scale:float=1.0 orientation:int=0] -> *Image
+    [image:*Image font:*Font x:double y:double text:cstring color:uint32_t &opt scale:float=1.0 orientation:int=0] -> *Image
     (var (cursor (const *uint8_t)) (cast (const *uint8_t) text))
     (var fp:*FontPlane NULL)
     (var cp:uint32_t 0)
