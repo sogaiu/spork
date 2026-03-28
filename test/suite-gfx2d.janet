@@ -379,4 +379,30 @@
 
 (test-bar-chart)
 
+(defn test-tabs-newlines-simple
+  []
+  (def canvas (blank 128 128 3))
+  (draw-simple-text canvas 2 2 "Hello, world!\nabc\n\t123" white)
+  (check-image canvas "tabs_newlines_text.png"))
+
+(test-tabs-newlines-simple)
+
+(defn test-tabs-newlines-ttf
+  []
+  (def canvas (blank 256 256 3))
+  (def font (load-font "examples/fonts/Roboto-Regular.ttf" 18))
+  (draw-text canvas font 2 2 "Hello, world!\nabc\n\t123" white)
+  (check-image canvas "tabs_newlines_ttf_text.png"))
+
+(test-tabs-newlines-ttf)
+
+(defn test-text-pinwheel
+  []
+  (def canvas (blank 200 200 3))
+  (each o [0 1 2 3]
+    (draw-simple-text canvas 100 100 "Pinwheel\npretty\n\tcool" yellow :default 1 1 o))
+  (check-image canvas "text_pinwheel.png"))
+
+(test-text-pinwheel)
+
 (end-suite)

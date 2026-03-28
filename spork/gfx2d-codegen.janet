@@ -56,12 +56,11 @@
 ### [ ] - Affine transforms
 ### [x] - float coordinate primitives (paths, rect, line, etc)
 ### [x] - stippled lines
-### [ ] - right-angle image rotation / flips
 ### [ ] - sRGB gamma correction/conversion and blending
 ### [x] - right-angle rotated text
 ### [ ] - color and otherwise anotated text w/ VT100 escape codes (allow for pretty printing w/ colors)
 ### [x] - remove prototype fill in default build (leave code for testing purposes)
-### [x] - vector font rendering and arbitrarily rotated text
+### [x] - vector font rendering
 ### [ ] - anti-aliasing w/ mutli-sampling and/or analysis
 ### [x] - shaders using cjanet-jit - "fill" and "stroke" shaders
 ### [x] - multithreading
@@ -595,6 +594,22 @@
       (return (colorjoin r g b a)))
     (return dest))
 
+  (function blend-over-simple :static :inline
+    ```
+    Blend over (normal alpha compositing but ignoring dest alpha, like a painter)
+    final.A   = 1
+    final.RGB = (src.RGB * src.A) + (dest.RGB * (1 - src.A))
+    ```
+    [dest:uint32_t src:uint32_t] -> uint32_t
+    (def d:Color (colorsplit dest))
+    (def s:Color (colorsplit src))
+    (def ainv:int (- 0xFF s.a))
+    (def a:int 0xFF)
+    (def r:int (/ (+ (* s.a s.r) (* d.r ainv)) 0xFF))
+    (def g:int (/ (+ (* s.a s.g) (* d.g ainv)) 0xFF))
+    (def b:int (/ (+ (* s.a s.b) (* d.b ainv)) 0xFF))
+    (return (colorjoin r g b a)))
+
   (function blend-under :static :inline
     ```
     Blend under (normal alpha compositing, like a painter). Invert src and dest from blend-over.
@@ -992,7 +1007,7 @@
     (var (c (const *uint8_t)) (cast (const *uint8_t) text))
     (while *c
       (def codepoint:int (utf8-read-codepoint &c))
-      (if (= codepoint ,(chr "\n")) (do (set yy (+ yy (* yscale gh))) (set xx x) (continue)))
+      (if (= codepoint ,(chr "\n")) (do (set yy (+ yy (* yscale gh))) (set xx 0) (continue)))
       (def cp437:int (unicode-to-cp437 codepoint))
       (for [(var row:int 0) (< row gh) (++ row)]
         (var glyph-row:unsigned 0)
@@ -1013,7 +1028,9 @@
                 (when (and (>= xxx 0) (>= yyy 0) (< xxx img->width) (< yyy img->height))
                   (image-set-pixel img xxx yyy color)))))
           (set glyph-row (>> glyph-row 1))))
-      (set xx (+ xx (* xscale gw))))
+      (if (= codepoint ,(chr "\t"))
+        (set xx (+ xx (* xscale gw 2))) # tab = 2 spaces
+        (set xx (+ xx (* xscale gw)))))
     (return img)))
 
 (comp-unless (dyn :shader-compile)
@@ -1032,7 +1049,9 @@
           (set w (max2z xcursor w))
           (set xcursor 0)
           (+= h font->gh))
-        (+= xcursor font->gw)))
+        (if (= codepoint ,(chr "\t"))
+          (+= xcursor (* 2 font->gw)) # tab = 2 spaces
+          (+= xcursor font->gw))))
     (set w (max2z xcursor w))
     (def xindex:int (? (band orientation 1) 1 0))
     (def yindex:int (? (band orientation 1) 0 1))
@@ -1504,6 +1523,61 @@
     :name "gfx2d/font-plane"
     :gc gc-font-plane)
 
+  (function bitmap-bake
+    "Custom bitmap bake to better handle missing glyphs, etc. Modified from BakeFontBitmap_internal in stb_truetype.h"
+    [data:*uint8_t pixel-height:float pixels:*uint8_t pw:int ph:int first-char:int num-chars:int chardata:*stbtt_bakedchar] -> int
+    (def scale:float)
+    (def x:int) (def y:int) (def bottom-y:int)
+    (def f:stbtt-fontinfo)
+    (set f.userdata NULL)
+    (unless (stbtt-InitFont &f data 0) (return -1))
+    (memset pixels 0 (* pw ph))
+    (set x 1) (set y 1) (set bottom-y 1)
+    (set scale (stbtt-ScaleForPixelHeight &f pixel-height))
+    (def advance:int)
+    (def lsb:int)
+    (def x0:int)
+    (def y0:int)
+    (def x1:int)
+    (def y1:int)
+    (for [(var i:int 0) (< i num-chars) (++ i)]
+      (def cdi:*stbtt_bakedchar (+ chardata i))
+      (def codepoint:int (+ first-char i))
+      (def g:int (stbtt-FindGlyphIndex &f codepoint))
+      (when (= 0 g)
+        (set cdi->x0 0)
+        (set cdi->y0 0)
+        (set cdi->x1 0)
+        (set cdi->y1 0)
+        (set cdi->xadvance 0)
+        (set cdi->xoff 0.0)
+        (set cdi->yoff 0.0)
+        (continue))
+      (assert (not= 0 g))
+      (stbtt-GetGlyphHMetrics &f g &advance &lsb)
+      (stbtt-GetGlyphBitmapBox &f g scale scale &x0 &y0 &x1 &y1)
+      (def gw:int (- x1 x0))
+      (def gh:int (- y1 y0))
+      (when (>= (+ x gw 1) pw)
+        (set y bottom-y)
+        (set x 1))
+      (when (>= (+ y gh 1) ph) # Doesn't fit vertically
+        (return (- i)))
+      (assert (< (+ x gw) pw))
+      (assert (< (+ y gh) ph))
+      (stbtt-MakeGlyphBitmap &f (+ pixels x (* y pw)) gw gh pw scale scale g)
+      (set cdi->x0 (cast int16_t x))
+      (set cdi->y0 (cast int16_t y))
+      (set cdi->x1 (cast int16_t (+ x gw)))
+      (set cdi->y1 (cast int16_t (+ y gh)))
+      (set cdi->xadvance (* scale advance))
+      (set cdi->xoff (cast float x0))
+      (set cdi->yoff (cast float y0))
+      (+= x (+ gw 1))
+      (when (> (+ y gh 1) bottom-y)
+        (set bottom-y (+ y gh 1))))
+    (return bottom-y))
+
   (function make-font-plane
     "Generate a bitmap for a given codepoint range. Make atlases of chunks of codepoints
   that are loaded dynamically as needed."
@@ -1517,8 +1591,8 @@
       (set bitmap (janet-realloc bitmap (* atlas-size atlas-size)))
       # TODO - don't reload font-buffer every-time
       # TODO - better rect packing for less memory usage?
-      (def result:int (stbtt-BakeFontBitmap font-buffer 0 font-scale bitmap
-                                            atlas-size atlas-size first-codepoint n-codepoints cdata))
+      (def result:int (bitmap-bake font-buffer font-scale bitmap
+                                   atlas-size atlas-size first-codepoint n-codepoints cdata))
       (if (> result 0) (break))
       (def frac-filled:float (/ (cast float (- result)) n-codepoints))
       (when (or (= 0.0 frac-filled) (> atlas-size (* 1024 font-scale)))
@@ -1548,7 +1622,7 @@
     [font:*Font codepoint:uint32_t scale:float] -> *FontPlane
     (var small-scale:int (cast int scale))
     (if (< small-scale 1) (set small-scale 1))
-    (def plane-key:uint32_t (+ (<< small-scale 22) (>> codepoint 10)))
+    (def plane-key:uint32_t (+ (<< small-scale 24) (>> codepoint 10)))
     (def check:Janet (janet-table-get font->planes (janet-wrap-number plane-key)))
     (when (janet-checktype check JANET_ABSTRACT)
       (return (cast *FontPlane (janet-unwrap-abstract check))))
@@ -1609,8 +1683,19 @@
       (unless (and fp (>= cp fp->first-codepoint) (< cp (+ fp->first-codepoint fp->n-codepoints)))
         (set fp (get-plane-for-codepoint font cp scale)))
       (def q:stbtt-aligned-quad)
+      # Special handling
+      (when (= 10 cp)
+        (set fx 0)
+        (+= fy (* scale font->scale))
+        (continue))
+      (when (and (not= 9 cp) (< cp 32)) # unprintable ascii range
+        (continue))
+      (def glyphi:int (- cp fp->first-codepoint))
+      (when (= 0 (.xadvance (aref fp->cdata glyphi)))
+        (+= fx (* 2 scale font->scale))
+        (continue))
       (stbtt-GetBakedQuad fp->cdata fp->pdata-width fp->pdata-height
-                          (- cp fp->first-codepoint)
+                          glyphi
                           &fx &fy
                           &q 0)
       (set min-fx (? (< q.x0 min-fx) q.x0 min-fx))
@@ -1664,9 +1749,20 @@
       # Cache last font plane to avoid hash table lookups (probably not that helpful, should bench)
       (unless (and fp (>= cp fp->first-codepoint) (< cp (+ fp->first-codepoint fp->n-codepoints)))
         (set fp (get-plane-for-codepoint font cp scale)))
+      # Special handling
+      (when (= 10 cp)
+        (set fx (- measure.xmin))
+        (+= fy (* scale font->scale))
+        (continue))
+      (when (and (not= 9 cp) (< cp 32)) # unprintable ascii range
+        (continue))
+      (def glyphi:int (- cp fp->first-codepoint))
+      (when (= 0 (.xadvance (aref fp->cdata glyphi)))
+        (+= fx (* 2 scale font->scale))
+        (continue))
       (def q:stbtt-aligned-quad)
       (stbtt-GetBakedQuad fp->cdata fp->pdata-width fp->pdata-height
-                          (- cp fp->first-codepoint)
+                          glyphi
                           &fx &fy
                           &q 0)
       # blit the quad
@@ -1692,7 +1788,7 @@
               (def outx:int (+ x outx1))
               (def outy:int (+ y outy1))
               (def oldcolor:uint32_t (image-get-pixel-bc image outx outy))
-              (image-set-pixel-bc image outx outy (blend-over oldcolor colora)))))))
+              (image-set-pixel-bc image outx outy (blend-over-simple oldcolor colora)))))))
     (return image))) # end dyn shader compile
 
 (comp-unless (dyn :shader-compile)

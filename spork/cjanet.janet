@@ -577,7 +577,7 @@
     ['break] (do (unless noindent (emit-indent)) (print "break;"))
     ['continue] (do (unless noindent (emit-indent)) (print "continue;"))
     ['label lab] (print (mangle-name lab) ":")
-    ['goto glab] (do (unless noindent (emit-indent)) (print "goto " (mangle-name glab)))
+    ['goto glab] (do (unless noindent (emit-indent)) (print "goto " (mangle-name glab) ";"))
     stm (do (unless noindent (emit-indent)) (emit-statement stm) (print ";")))
   (unless nobracket (emit-block-end)))
 
