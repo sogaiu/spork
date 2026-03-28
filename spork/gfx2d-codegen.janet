@@ -538,7 +538,7 @@
    :yellow 0xFF00FFFF
    :magenta 0xFFFF00FF})
 
-(eachp [name value] colors
+(each [name value] (sort (pairs colors))
   (@ define ,name ,value)
   (unless (dyn :shader-compile)
     (emit-cdef (symbol name) (string "color constant for " name) ~(janet-wrap-number ,value))))
@@ -851,6 +851,8 @@
 ### code page from IBM compatible computers.
 ###
 
+(@ define FONT_SPACES_TO_TABS 2)
+
 (typedef OrientationTransform
   (named-struct OrientationTransform
     x-by-x int
@@ -925,10 +927,10 @@
     [orientation:int] -> OrientationTransform
     (switch
       (% orientation 4)
-      0 (return (named-struct OrientationTransform x-by-x  1 x-by-y  0 y-by-y  1 y-by-x  0))
-      1 (return (named-struct OrientationTransform x-by-x  0 x-by-y -1 y-by-y  0 y-by-x  1))
-      2 (return (named-struct OrientationTransform x-by-x -1 x-by-y  0 y-by-y -1 y-by-x  0))
-      3 (return (named-struct OrientationTransform x-by-x  0 x-by-y  1 y-by-y  0 y-by-x -1))))
+      0 (return (named-struct OrientationTransform x-by-x 1 x-by-y 0 y-by-y 1 y-by-x 0))
+      1 (return (named-struct OrientationTransform x-by-x 0 x-by-y -1 y-by-y 0 y-by-x 1))
+      2 (return (named-struct OrientationTransform x-by-x -1 x-by-y 0 y-by-y -1 y-by-x 0))
+      3 (return (named-struct OrientationTransform x-by-x 0 x-by-y 1 y-by-y 0 y-by-x -1))))
 
   (function orient-xform
     "Apply oritentation to a point"
@@ -1029,7 +1031,7 @@
                   (image-set-pixel img xxx yyy color)))))
           (set glyph-row (>> glyph-row 1))))
       (if (= codepoint ,(chr "\t"))
-        (set xx (+ xx (* xscale gw 2))) # tab = 2 spaces
+        (set xx (+ xx (* xscale gw FONT_SPACES_TO_TABS))) # tab = 2 spaces
         (set xx (+ xx (* xscale gw)))))
     (return img)))
 
@@ -1050,7 +1052,7 @@
           (set xcursor 0)
           (+= h font->gh))
         (if (= codepoint ,(chr "\t"))
-          (+= xcursor (* 2 font->gw)) # tab = 2 spaces
+          (+= xcursor (* FONT_SPACES_TO_TABS font->gw)) # tab = 2 spaces
           (+= xcursor font->gw))))
     (set w (max2z xcursor w))
     (def xindex:int (? (band orientation 1) 1 0))
@@ -1473,6 +1475,8 @@
 ### TrueType Text Rendering
 ###
 
+(@ define TTF_CODEPOINT_BITS_PER_PLANE 8)
+
 (comp-unless (dyn :shader-compile)
 
   (typedef FontPlane
@@ -1489,6 +1493,7 @@
       ttf-data *uint8_t
       ttf-data-size uint32_t
       planes *JanetTable
+      tab-width float
       scale float))
 
   (function gc-font :static
@@ -1525,15 +1530,18 @@
 
   (function bitmap-bake
     "Custom bitmap bake to better handle missing glyphs, etc. Modified from BakeFontBitmap_internal in stb_truetype.h"
-    [data:*uint8_t pixel-height:float pixels:*uint8_t pw:int ph:int first-char:int num-chars:int chardata:*stbtt_bakedchar] -> int
-    (def scale:float)
+    [data:*uint8_t scale:float pixels:*uint8_t pw:int ph:int first-char:int num-chars:int chardata:*stbtt_bakedchar] -> int
     (def x:int) (def y:int) (def bottom-y:int)
     (def f:stbtt-fontinfo)
     (set f.userdata NULL)
     (unless (stbtt-InitFont &f data 0) (return -1))
     (memset pixels 0 (* pw ph))
+    (memset chardata 0 (* num-chars (sizeof stbtt_bakedchar)))
     (set x 1) (set y 1) (set bottom-y 1)
-    (set scale (stbtt-ScaleForPixelHeight &f pixel-height))
+    # Allow both pts and pixels
+    (if (< scale 0)
+      (set scale (- scale)) # pts
+      (set scale (stbtt-ScaleForPixelHeight &f scale))) # pixels
     (def advance:int)
     (def lsb:int)
     (def x0:int)
@@ -1601,7 +1609,7 @@
         (janet-panic "failed to allocate font plane atlas"))
       (def new-size:uint32_t (* 8 (/ (cast uint32_t (+ 32 (/ atlas-size frac-filled))) 8)))
       (if (< new-size atlas-size)
-        (set new-size (+ atlas-size 64)))
+        (set new-size (+ atlas-size 32)))
       (set atlas-size new-size))
     (def w:uint32_t atlas-size)
     (def h:uint32_t atlas-size)
@@ -1622,19 +1630,89 @@
     [font:*Font codepoint:uint32_t scale:float] -> *FontPlane
     (var small-scale:int (cast int scale))
     (if (< small-scale 1) (set small-scale 1))
-    (def plane-key:uint32_t (+ (<< small-scale 24) (>> codepoint 10)))
+    (def plane-key:uint32_t (+ (<< small-scale (- 26 TTF_CODEPOINT_BITS_PER_PLANE)) (>> codepoint TTF_CODEPOINT_BITS_PER_PLANE)))
     (def check:Janet (janet-table-get font->planes (janet-wrap-number plane-key)))
     (when (janet-checktype check JANET_ABSTRACT)
-      (return (cast *FontPlane (janet-unwrap-abstract check))))
+      (def plane:*FontPlane (cast *FontPlane (janet-unwrap-abstract check)))
+      (assert (>= codepoint plane->first-codepoint))
+      (assert (< codepoint (+ plane->first-codepoint plane->n-codepoints)))
+      (return plane))
     # No plane found, make one
-    (def first-codepoint:uint32_t (<< plane-key 10))
-    (def n-codepoints:uint32_t 1024) # 2^10
-    (when (= 0 first-codepoint)
-      (+= first-codepoint 32)
-      (-= n-codepoints 32))
+    (def first-codepoint:uint32_t (band 0xFFFFFF (<< plane-key TTF_CODEPOINT_BITS_PER_PLANE)))
+    (def n-codepoints:uint32_t (<< 1 TTF_CODEPOINT_BITS_PER_PLANE))
     (def plane:*FontPlane (make-font-plane font first-codepoint n-codepoints scale))
     (janet-table-put font->planes (janet-wrap-number plane-key) (janet-wrap-abstract plane))
+    (assert (>= codepoint plane->first-codepoint))
+    (assert (< codepoint (+ plane->first-codepoint plane->n-codepoints)))
     (return plane))
+
+  (typedef TextMeasure
+    (named-struct TextMeasure
+      xmin int32_t
+      ymin int32_t
+      width int32_t
+      height int32_t))
+
+  (function measure-text-impl :static
+    "Measure text and get its bounds"
+    [font:*Font (cursor (const *uint8_t)) scale:float orientation:int] -> TextMeasure
+    (var fx:float 0.0)
+    (var fy:float 0.0)
+    (var min-fx:float 0.0)
+    (var min-fy:float 0.0)
+    (var max-fx:float 0.0)
+    (var max-fy:float 0.0)
+    (var fp:*FontPlane NULL)
+    (var cp:uint32_t 0)
+    (while *cursor
+      (set cp (utf8-read-codepoint &cursor))
+      (if (not cp) (break))
+      # Cache last font plane to avoid hash table lookups (probably not that helpful, should bench)
+      (unless (and fp (>= cp fp->first-codepoint) (< cp (+ fp->first-codepoint fp->n-codepoints)))
+        (set fp (get-plane-for-codepoint font cp scale)))
+      (def q:stbtt-aligned-quad)
+      (memset &q 0 (sizeof q))
+      # Special handling
+      (when (= 10 cp)
+        (set fx 0)
+        (+= fy (* scale font->scale))
+        (continue))
+      (when (= cp 9)
+        (+= fx (* font->tab-width scale))
+        (continue))
+      (when (< cp 32) # unprintable ascii range
+        (continue))
+      (def glyphi:int (- cp fp->first-codepoint))
+      (stbtt-GetBakedQuad fp->cdata fp->pdata-width fp->pdata-height
+                          glyphi
+                          &fx &fy
+                          &q 0)
+      (set min-fx (? (< q.x0 min-fx) q.x0 min-fx))
+      (set min-fy (? (< q.y0 min-fy) q.y0 min-fy))
+      (set max-fx (? (> q.x1 max-fx) q.x1 max-fx))
+      (set max-fy (? (> q.y1 max-fy) q.y1 max-fy)))
+    # Handle last position
+    (set max-fx (? (> fx max-fx) fx max-fx))
+    (set max-fy (? (> fy max-fy) fy max-fy))
+    (var w:int32_t (cast int32_t (+ 0.5 (- max-fx min-fx))))
+    (var h:int32_t (cast int32_t (+ 0.5 (- max-fy min-fy))))
+    (switch (% orientation 4)
+            0 (break)
+            1 (do
+                (swap w h int32_t)
+                (set min-fx min-fy)
+                (set min-fy (- max-fx))
+                (break))
+            2 (do
+                (set min-fx (- max-fx))
+                (set min-fy (- max-fy))
+                (break))
+            3 (do
+                (swap w h int32_t)
+                (set min-fx (- max-fy))
+                (set min-fy max-fx)
+                (break)))
+    (return (named-struct TextMeasure xmin min-fx ymin min-fy width w height h)))
 
   (cfunction load-font
     "Load a font from disk and create compressed font. A range of code points must be loaded ahead of time."
@@ -1655,72 +1733,13 @@
     (set font->planes (janet-table 10))
     (set font->scale font-scale)
     (set font->ttf-data-size nread)
+    (set font->tab-width 0)
+
+    # Now calculate tab width as 2 underscores
+    (def measure:TextMeasure (measure-text-impl font (cast (const *uint8_t) "_") 1 0))
+    (set font->tab-width (* FONT_SPACES_TO_TABS measure.width))
 
     (return font))
-
-  (typedef TextMeasure
-    (named-struct TextMeasure
-      xmin int32_t
-      ymin int32_t
-      width int32_t
-      height int32_t))
-
-  (function measure-text-impl :static
-    "Measure text and get it's bounds"
-    [font:*Font (cursor (const *uint8_t)) scale:float orientation:int] -> TextMeasure
-    (var fx:float 0.0)
-    (var fy:float 0.0)
-    (var min-fx:float 0.0)
-    (var min-fy:float 0.0)
-    (var max-fx:float 0.0)
-    (var max-fy:float 0.0)
-    (var fp:*FontPlane NULL)
-    (var cp:uint32_t 0)
-    (while *cursor
-      (set cp (utf8-read-codepoint &cursor))
-      (if (not cp) (break))
-      # Cache last font plane to avoid hash table lookups (probably not that helpful, should bench)
-      (unless (and fp (>= cp fp->first-codepoint) (< cp (+ fp->first-codepoint fp->n-codepoints)))
-        (set fp (get-plane-for-codepoint font cp scale)))
-      (def q:stbtt-aligned-quad)
-      # Special handling
-      (when (= 10 cp)
-        (set fx 0)
-        (+= fy (* scale font->scale))
-        (continue))
-      (when (and (not= 9 cp) (< cp 32)) # unprintable ascii range
-        (continue))
-      (def glyphi:int (- cp fp->first-codepoint))
-      (when (= 0 (.xadvance (aref fp->cdata glyphi)))
-        (+= fx (* 2 scale font->scale))
-        (continue))
-      (stbtt-GetBakedQuad fp->cdata fp->pdata-width fp->pdata-height
-                          glyphi
-                          &fx &fy
-                          &q 0)
-      (set min-fx (? (< q.x0 min-fx) q.x0 min-fx))
-      (set min-fy (? (< q.y0 min-fy) q.y0 min-fy))
-      (set max-fx (? (> q.x1 max-fx) q.x1 max-fx))
-      (set max-fy (? (> q.y1 max-fy) q.y1 max-fy)))
-    (var w:int32_t (cast int32_t (+ 0.5 (- max-fx min-fx))))
-    (var h:int32_t (cast int32_t (+ 0.5 (- max-fy min-fy))))
-    (switch (% orientation 4)
-      0 (break)
-      1 (do
-          (swap w h int32_t)
-          (set min-fx min-fy)
-          (set min-fy (- max-fx))
-          (break))
-      2 (do
-          (set min-fx (- max-fx))
-          (set min-fy (- max-fy))
-          (break))
-      3 (do
-          (swap w h int32_t)
-          (set min-fx (- max-fy))
-          (set min-fy max-fx)
-          (break)))
-    (return (named-struct TextMeasure xmin min-fx ymin min-fy width w height h)))
 
   (cfunction measure-text
     "Measure how large a piece of text would be when rasterized. Returns a 2-tuple of [width height]"
@@ -1754,13 +1773,14 @@
         (set fx (- measure.xmin))
         (+= fy (* scale font->scale))
         (continue))
-      (when (and (not= 9 cp) (< cp 32)) # unprintable ascii range
+      (when (= cp 9)
+        (+= fx (* font->tab-width scale))
+        (continue))
+      (when (< cp 32) # unprintable ascii range
         (continue))
       (def glyphi:int (- cp fp->first-codepoint))
-      (when (= 0 (.xadvance (aref fp->cdata glyphi)))
-        (+= fx (* 2 scale font->scale))
-        (continue))
       (def q:stbtt-aligned-quad)
+      (memset &q 0 (sizeof q))
       (stbtt-GetBakedQuad fp->cdata fp->pdata-width fp->pdata-height
                           glyphi
                           &fx &fy
