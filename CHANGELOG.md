@@ -1,6 +1,9 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## Unreleased - ???
+- More work on gfx2d and charts
+
 ## 1.1.1 - 2025-10-10
 - Fix `janet-pm quickbin`
 - Fix PATH separator in ps activate script
