@@ -508,6 +508,10 @@
 
   [view view-convert view-unconvert])
 
+###
+### Line Graphs
+###
+
 (defn plot-line-graph
   ```
   Plot a line graph or scatter graph on a canvas. This function does not add a set of axis, title, or chart legend, it will only plot the graph lines and points from data.
@@ -835,6 +839,124 @@
     (g/fill-rect legend-view 0 0 lw lh background-color)
     (draw-legend legend-view :font font :padding legend-padding :labels y-columns :view-width 0
                  :color-map color-map :legend-map legend-map :frame true))
+
+  # Save to file
+  (when save-as
+    (g/save save-as canvas))
+
+  canvas)
+
+###
+### Heat Maps
+###
+
+(defn plot-heap-map
+  ```
+  Render a heap map on a set of axis.
+  ```
+  [&named
+   canvas
+   heat-values
+   num-columns
+   num-rows
+   box-gap]
+
+  # Check parameters and set defaults.
+  (assert num-columns)
+  (assert num-rows)
+  (def {:width canvas-width :height canvas-height} (g/unpack canvas))
+  # (default to-pixel-space (fn :convert [x y] [x y]))
+  (default box-gap 2)
+  #(default background-color (dyn *background-color* default-background-color))
+  #(default text-color (dyn *text-color* default-text-color))
+  #(default font (dyn *font* default-font))
+
+  # Calculate box sizes
+  (def box-width (- (/ (- canvas-width box-gap) num-columns) box-gap))
+  (def box-height (- (/ (- canvas-height box-gap) num-rows) box-gap))
+  # TODO - ensure square boxes somehow?
+  (loop [y :range [box-gap canvas-height (+ box-height box-gap)]
+         x :range [box-gap canvas-width (+ box-width box-gap)]]
+    (def color (color-hash (math/random)))
+    (g/fill-rect canvas x y box-width box-height color))
+
+  canvas)
+
+(defn heat-map
+  "Generate a heat map"
+  [&named
+   width height heat-values
+   num-columns num-rows
+   font background-color text-color
+   x-min x-max y-min y-max
+   format-x format-y
+   padding title
+   box-gap
+   legend
+   grid
+   x-label y-label
+   x-suffix x-prefix y-suffix y-prefix
+   x-ticks x-minor-ticks y-minor-ticks
+   x-labels-vertical
+   save-as]
+
+  # Check parameters and set defaults.
+  (default width 1280)
+  (default height 720)
+  (default padding (dyn *padding* default-padding))
+  (default background-color (dyn *background-color* default-background-color))
+  (default text-color (dyn *text-color* default-text-color))
+  (default font (dyn *font* default-font))
+  (default legend :none)
+  (default grid :none)
+
+  # Get canvas
+  (def canvas (g/blank width height 4))
+  (g/fill-rect canvas 0 0 width height background-color)
+
+  # Render title section, and update view to cut out title
+  (var title-padding 0)
+  (when title
+    (def title-scale (* 2 font-scale))
+    (def [title-width title-height] (text-measure title font title-scale))
+    (set title-padding (+ padding title-height))
+    (text-draw canvas (math/round (* 0.5 (- width title-width))) padding title text-color font title-scale))
+
+  # TODO - legend?
+
+  # Crop title section out of place where axis and charting will draw
+  (def view (g/viewport canvas 0 title-padding width (- height title-padding)))
+
+  # Draw axes
+  (def {:width view-width :height view-height} (g/unpack view))
+  (default x-min 0)
+  (default y-min 0)
+  (default x-max num-columns)
+  (default y-max num-rows)
+  (def [graph-view to-pixel-space _to-metric-space]
+    (draw-axes view
+               :padding padding :font font
+               :grid grid
+               :format-x format-x :format-y format-y
+               :x-suffix x-suffix :x-prefix x-prefix
+               :y-suffix y-suffix :y-prefix y-prefix
+               :x-min x-min :x-max x-max
+               :y-min y-min :y-max y-max
+               :x-ticks x-ticks
+               :x-label x-label :y-label y-label
+               :x-minor-ticks x-minor-ticks
+               :y-minor-ticks y-minor-ticks
+               :x-labels-vertical x-labels-vertical))
+
+  # Plot the heat-map
+  (plot-heap-map
+   :canvas graph-view
+   :heat-values heat-values
+   :num-columns num-columns
+   :num-rows num-rows
+   :box-gap box-gap)
+
+  # TODO - legend?
 
   # Save to file
   (when save-as
