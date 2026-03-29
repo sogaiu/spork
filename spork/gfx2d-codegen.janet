@@ -636,6 +636,50 @@
     (def b:int (clampz (/ (+ (* s.b 0xFF) (* d.b ainv)) 0xFF) 0 0xFF))
     (return (colorjoin r g b a)))
 
+  (function blend-under-premul :static :inline
+    ```
+    Blend under with premultiplied alpha (normal alpha compositing, like a painter). Invert src and dest from blend-premul
+    final.A   = dest.A + src.A * (1 - dest.A)
+    final.RGB = dest.RGB + (src.RGB * (1 - dest.A))
+    ```
+    [dest:uint32_t src:uint32_t] -> uint32_t
+    (return (blend-premul src dest)))
+
+  (cfunction premultiply-alpha
+    ```
+    Modify an image my multiplying red, green, and blue pixel channels by the alpha channel.
+    By default, images are loaded with non-premultiplied alpha and not assumed to have any particular color-space.
+    ```
+    [img:*Image] -> *Image
+    (if (not= 4 img->channels) (janet-panic "cannot premultiply alpha without an alpha channel"))
+    (for [(var y:int 0) (< y img->height) (++ y)]
+      (for [(var x:int 0) (< x img->width) (++ x)]
+        (def color:Color (colorsplit (image-get-pixel img x y)))
+        (set color.r (/ (* color.r color.a) 255))
+        (set color.g (/ (* color.g color.a) 255))
+        (set color.b (/ (* color.b color.a) 255))
+        (def c:uint32_t (colorjoin color.r color.g color.b color.a))
+        (image-set-pixel img x y c)))
+    (return img))
+
+  (cfunction apply-gamma
+    ```
+    Apply a gamma curve to the the color channels of an image (not including the alpha channel).
+    For example, to convert linear colors to sRGB, apply a gamma of 2.2.
+    Note that channels only have 8 bits of precision, so steep gammas will lose information.
+    ```
+    [img:*Image gamma:double] -> *Image
+    (polymorph img->channels [1 2 3 4]
+      (for [(var y:int 0) (< y img->height) (++ y)]
+        (for [(var x:int 0) (< x img->width) (++ x)]
+          (def color:Color (colorsplit (image-get-pixel img x y)))
+          (set color.r (clampz (cast int (* 255 (pow (/ (cast float color.r) 255) gamma))) 0 255))
+          (set color.g (clampz (cast int (* 255 (pow (/ (cast float color.g) 255) gamma))) 0 255))
+          (set color.b (clampz (cast int (* 255 (pow (/ (cast float color.b) 255) gamma))) 0 255))
+          (def c:uint32_t (colorjoin color.r color.g color.b color.a))
+          (image-set-pixel img x y c))))
+    (return img))
+
   # Blend operators
   (each [name op] [['add '+] ['sub '-] ['lighten 'max2z] ['darken 'min2z]]
     (function ,(symbol 'blend- name) :static :inline
@@ -744,7 +788,7 @@
     (def ymax:int (? (< yoverflow 0) src->height (- src->height yoverflow)))
     (polymorph src->channels [1 2 3 4]
       # TODO - automatically add all blend modes here if we add more
-      (polymorph-cond blender [blend-add blend-sub blend-over blend-under blend-premul blend-lighten blend-darken]
+      (polymorph-cond blender [blend-add blend-sub blend-over blend-under blend-premul blend-under-premul blend-lighten blend-darken]
         (for [(var y:int ymin) (< y ymax) (++ y)]
           (for [(var x:int xmin) (< x xmax) (++ x)]
             (def src-color:uint32_t (image-get-pixel src x y))

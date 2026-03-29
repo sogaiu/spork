@@ -6,7 +6,8 @@
 ### This module is for generating graphs and charts on the CPU and rendering
 ### them to bitmaps. While not completely general in styling, charts should be general
 ### purpose in visualizing different kinds of data. For more rendering backends or functionality,
-### libraries like plPlot may be more suitable.
+### libraries like plPlot may be more suitable. However, out-of-the-box chart generation with minimal
+### dependencies is very useful to have.
 ###
 ### Data is passed to most charts as a "data-frame", which is a table mapping string column names
 ### to arrays of data points.
@@ -24,6 +25,7 @@
 ### [x] - wrap colors, padding, font, etc. into some kind of styling table to pass around consistently
 ### [x] - stippled grid lines
 ### [x] - bar chart
+### [x] - area chart
 ### [ ] - heat map
 ### [ ] - more test charts
 ### [ ] - pie chart
@@ -50,8 +52,19 @@
 (def- default-background-color g/white)
 (def- default-grid-color (g/rgb 0.8 0.8 0.8))
 (def- default-padding 16)
-
 (def- font-scale 1)
+
+(defn- check-enum-impl
+  "Assert that a value x is in options, and give a nice error if not"
+  [arg-name x options optstring]
+  (assert (get options x) (string/format "expected argument %v to be one of %s, got %v" arg-name optstring x)))
+
+(defmacro- enum
+  [x & options]
+  "Shorthand to assert that a value x is in options, and give a nice error if not"
+  (def quote-options (invert options))
+  (def optstring (string/join (map describe options) ", "))
+  ~(,check-enum-impl ',x ,x ',quote-options ,optstring))
 
 (defn- draw-frame
   "Draw a frame enclosing a rectangle that is `outer` pixels wide"
@@ -341,6 +354,9 @@
   (assert y-min)
   (assert y-max)
 
+  # Check enums
+  (enum grid :none :solid :stipple :none)
+
   (def {:width width :height height} (g/unpack canvas))
   (def line-color (dyn *stroke-color* default-stroke-color))
   (def grid-color (dyn *grid-color* default-grid-color))
@@ -502,7 +518,8 @@
   * :x-column - the name of the data frame column to use for the x axis
   * :y-column - a single column name or list of column names to use for the y coordinates and connected lines
   * :color-map - a dictionary mapping columns to colors. By default will hash column name to pseudo-random colors
-  * :line-type - how to actually draw lines. Can be one of :stroke, :plot, :none, :bar, or :stipple. Default is :plot.
+  * :line-style - How to draw lines. Can be one of :stroke, :plot, :none, :bar, :area, or :stipple. Default is :plot.
+  * :line-style-per-column - Optional dictionary to override line style by y-column name.
   * :circle-points - add circles around each point
   * :point-radius - how large to make the circles around each point in pixels
   * :super-sample - use super sampling to draw a larger image and then scale it down for anti-aliasing.
@@ -515,6 +532,7 @@
    data
    to-pixel-space
    line-style
+   line-style-per-column
    x-column
    y-column
    circle-points
@@ -528,6 +546,7 @@
   (def {:width canvas-width :height canvas-height} (g/unpack canvas))
   (default to-pixel-space (fn :convert [x y] [x y]))
   (default color-map {})
+  (default line-style-per-column {})
   (default line-style :plot)
   (default bar-padding 4)
   (default point-radius 3)
@@ -551,10 +570,11 @@
                      :super-sample nil
                      :stroke-thickness (* super-sample stroke-thickness)
                      :point-radius (* super-sample point-radius)
+                     :line-style-per-column line-style-per-column
                      :line-style line-style)
     # The resize + blend must match, as well as the destination pixels!
     # After resize, alpha is premultiplied
-    (g/resize-into temp-canvas new-canvas false)
+    (g/resize-into temp-canvas new-canvas true)
     (g/stamp-blend canvas temp-canvas :premul)
     (break canvas))
 
@@ -580,7 +600,8 @@
           (array/push pts (math/round x1) (math/round y1)))))
 
     # Plot lines between points
-    (def line-style2 (if (dictionary? line-style) (get line-style ycol :plot) line-style))
+    (def line-style2 (get line-style-per-column ycol line-style))
+    (enum line-style2 :plot :stipple :stroke :bar :none :area)
     (case line-style2
 
       :stipple
@@ -602,6 +623,13 @@
       :stroke
       (do
         (g/stroke-path canvas pts graph-color stroke-thickness))
+
+      :area
+      (do
+        (def min-x (first pts))
+        (def max-x (get pts (- (length pts) 2)))
+        (def bottom-y 10000)
+        (g/fill-path canvas [;pts max-x bottom-y min-x bottom-y] graph-color))
 
       :bar
       (do
@@ -678,7 +706,8 @@
   * :legend - set to true to add a legend to the top of the chart
   * :legend-map - a dictionary mapping column names to pretty text for the chart
   * :point-radius - radius of points when drawing a scatter plot
-  * :line-type - how to actually draw lines. Can be one of :stroke, :plot, or :stipple. Default is :plot.
+  * :line-style - How to draw lines. Can be one of :stroke, :plot, :none, :bar, :area, or :stipple. Default is :plot.
+  * :line-style-per-column - Optional dictionary to override line style by y-column name.
   * :super-sample - Super Sample anti-aliasing for chart lines. Is a bit slow, but makes smooth plots. Works best with :stroke and :bar
   * :stroke-thickness - thickness in pixels of the stroke of the graph when :line-type = :stroke 
 
@@ -699,7 +728,7 @@
    format-x format-y
    save-as
    legend-map
-   line-style
+   line-style line-style-per-column
    x-label y-label
    x-suffix x-prefix y-suffix y-prefix
    x-column y-column
@@ -720,6 +749,12 @@
   (default circle-points false)
   (default grid :none)
   (default line-style :plot)
+  (default legend :none)
+
+  # Check enums
+  (enum grid :none :solid :stipple :none)
+  (enum line-style :plot :stipple :stroke :bar :none :area) # - allow for dictionary of styles
+  (enum legend :none :top :top-left :top-right :bottom-left :bottom-right)
 
   # Allow variadic shorthand
   (def y-columns (if (indexed? y-column) y-column [y-column]))
@@ -738,7 +773,7 @@
 
   # Add legend if legend = :top. This makes a horizontal legend just below the title with no extra framing
   (def legend-padding (max 4 (div padding 4)))
-  (when (or (= legend true) (= legend :top))
+  (when (= legend :top)
     (+= title-padding (div padding 2))
     (def view-width (- width padding padding))
     (def [lw lh] (draw-legend nil :font font :padding legend-padding :labels y-columns :legend-map legend-map :view-width view-width))
@@ -781,6 +816,7 @@
     :y-column y-columns
     :color-map color-map
     :line-style line-style
+    :line-style-per-column line-style-per-column
     :super-sample super-sample
     :circle-points (or circle-points scatter)
     :stroke-thickness stroke-thickness
