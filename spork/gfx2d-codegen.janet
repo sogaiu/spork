@@ -61,7 +61,7 @@
 ### [ ] - color and otherwise anotated text w/ VT100 escape codes (allow for pretty printing w/ colors)
 ### [x] - remove prototype fill in default build (leave code for testing purposes)
 ### [x] - vector font rendering
-### [ ] - anti-aliasing w/ mutli-sampling and/or analysis
+### [x] - anti-aliasing w/ mutli-sampling and/or analysis
 ### [x] - shaders using cjanet-jit - "fill" and "stroke" shaders
 ### [x] - multithreading
 ### [ ] - Image analysis and statistics (RMSE, histogram, k-means, etc.)
@@ -497,7 +497,7 @@
     (return img)))
 
 ##
-## Color Constants
+## Colors
 ##
 
 # For unpacking pixels from image buffers more easily
@@ -526,6 +526,31 @@
 (function colorjoin :static :inline
   [r:int g:int b:int a:int] -> uint32_t
   (return (+ (cast uint32_t r) (<< (cast uint32_t g) 8) (<< (cast uint32_t b) 16) (<< (cast uint32_t a) 24))))
+
+# Better blending
+(typedef ColorHDR
+  (named-struct ColorHDR
+    r float
+    g float
+    b float
+    a float))
+
+(function colorsplit-hdr :static :inline
+  [color:uint32_t] -> ColorHDR
+  (return
+    (named-struct ColorHDR
+      r (/ (cast float (band color 0xFF)) 255)
+      g (/ (cast float (band (>> color 8) 0xFF)) 255)
+      b (/ (cast float (band (>> color 16) 0xFF)) 255)
+      a (/ (cast float (band (>> color 24) 0xFF)) 255))))
+
+(function hdr-to-uint :static :inline
+  [color:ColorHDR] -> uint32_t
+  (return
+    (+ (cast uint32_t (* 255 color.r))
+       (<< (cast uint32_t (* 255 color.g)) 8)
+       (<< (cast uint32_t (* 255 color.b)) 16)
+       (<< (cast uint32_t (* 255 color.a)) 24))))
 
 (def- colors
   {:red 0xFF0000FF
@@ -573,6 +598,22 @@
 (comp-unless (dyn :shader-compile)
 
   # TODO - be less conservative with clampz
+
+  (function color-lerp :static :inline
+    ```
+    Blend between two colors
+    ```
+    [a:uint32_t b:uint32_t t:float] -> uint32_t
+    (def A:ColorHDR (colorsplit-hdr a))
+    (def B:ColorHDR (colorsplit-hdr b))
+    (var C:ColorHDR)
+    (set C.r (lerp A.r B.r t))
+    (set C.g (lerp A.g B.g t))
+    (set C.b (lerp A.b B.b t))
+    (set C.a (lerp A.a B.a t))
+    (return (hdr-to-uint C)))
+
+
 
   (function blend-over :static :inline
     ```

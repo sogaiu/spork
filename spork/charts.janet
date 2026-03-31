@@ -850,6 +850,9 @@
 ### Heat Maps
 ###
 
+(defn- lerp [a b t] (+ (* a t) (* (- 1 t) b)))
+(defn- color-lerp [r g b R G B t] (g/rgb (lerp r R t) (lerp g G t) (lerp b B t)))
+
 (defn plot-heap-map
   ```
   Render a heap map on a set of axis.
@@ -866,19 +869,30 @@
   (assert num-rows)
   (def {:width canvas-width :height canvas-height} (g/unpack canvas))
   # (default to-pixel-space (fn :convert [x y] [x y]))
-  (default box-gap 2)
+  (default box-gap 4)
   #(default background-color (dyn *background-color* default-background-color))
   #(default text-color (dyn *text-color* default-text-color))
   #(default font (dyn *font* default-font))
+
+  (def heat-map-color-min [0.05 0.05 0.6])
+  (def heat-map-color-mid [0.01 0.01 0.01])
+  (def heat-map-color-max [0.82 0.02 0.02])
+  (defn get-color [t]
+    (if (> 0.5 t)
+      (color-lerp ;heat-map-color-min ;heat-map-color-mid (* 2 t))
+      (color-lerp ;heat-map-color-mid ;heat-map-color-max (* 2 (- t 0.5)))))
 
   # Calculate box sizes
   (def box-width (- (/ (- canvas-width box-gap) num-columns) box-gap))
   (def box-height (- (/ (- canvas-height box-gap) num-rows) box-gap))
   # TODO - ensure square boxes somehow?
-  (loop [y :range [box-gap canvas-height (+ box-height box-gap)]
-         x :range [box-gap canvas-width (+ box-width box-gap)]]
-    (def color (color-hash (math/random)))
-    (g/fill-rect canvas x y box-width box-height color))
+  (loop [y :range [0 num-rows]
+         x :range [0 num-columns]]
+    (def color (get-color (math/random)))
+    (g/fill-rect canvas
+                 (+ box-gap (* x (+ box-gap box-width)))
+                 (+ box-gap (* y (+ box-gap box-height)))
+                 box-width box-height color))
 
   canvas)
 
@@ -929,10 +943,10 @@
 
   # Draw axes
   (def {:width view-width :height view-height} (g/unpack view))
-  (default x-min 0)
-  (default y-min 0)
-  (default x-max num-columns)
-  (default y-max num-rows)
+  (default x-min -0.5)
+  (default y-min -0.5)
+  (default x-max (+ 0.5 num-columns))
+  (default y-max (+ 0.5 num-rows))
   (def [graph-view to-pixel-space _to-metric-space]
     (draw-axes view
                :padding padding :font font
