@@ -1,8 +1,8 @@
-(use ../spork/test)
-(import ../spork/pm)
-(import ../spork/pm-config)
-(import ../spork/sh)
-(import ../spork/path)
+(use spork/test)
+(import spork/pm)
+(import spork/pm-config)
+(import spork/sh)
+(import spork/path)
 
 (start-suite)
 

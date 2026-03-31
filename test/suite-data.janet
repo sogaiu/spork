@@ -1,5 +1,5 @@
-(use ../spork/test)
-(import ../spork/data :as d)
+(use spork/test)
+(import spork/data :as d)
 
 (start-suite)
 

@@ -1,5 +1,5 @@
-(use ../spork/test)
-(import ../spork/pgp)
+(use spork/test)
+(import spork/pgp)
 
 (start-suite)
 

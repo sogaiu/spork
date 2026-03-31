@@ -1,5 +1,5 @@
-(use ../spork/test)
-(import ../spork/date)
+(use spork/test)
+(import spork/date)
 
 (start-suite)
 

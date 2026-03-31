@@ -1,5 +1,5 @@
-(use ../spork/test)
-(use ../spork/cjanet)
+(use spork/test)
+(use spork/cjanet)
 
 (start-suite)
 

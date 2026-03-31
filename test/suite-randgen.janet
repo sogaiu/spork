@@ -1,5 +1,5 @@
-(use ../spork/test)
-(use ../spork/randgen)
+(use spork/test)
+(use spork/randgen)
 
 (start-suite)
 

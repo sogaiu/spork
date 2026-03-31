@@ -218,6 +218,18 @@
 
 (defn test
   []
+  (def my-bundle (pm/resolve-bundle "file::."))
+  (def my-name (pm/name-lookup my-bundle))
+  (unless (and my-name (bundle/installed? my-name))
+    (eprintf ```
+             bundle %j is not installed! Install this bundle globally with `[sudo] janet-pm install` or with a virtual environment:
+               1. janet-pm env
+               2. Activate env following on screen instructions
+               3. janet-pm deps
+               4. janet-pm install
+               5. janet-pm test
+             ``` (or my-name my-bundle))
+    (os/exit 1))
   (pm/local-hook "check" @{}))
 
 (defn deps

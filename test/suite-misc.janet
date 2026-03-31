@@ -1,5 +1,5 @@
-(use ../spork/test)
-(import ../spork/misc)
+(use spork/test)
+(import spork/misc)
 
 (start-suite)
 

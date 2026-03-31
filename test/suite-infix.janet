@@ -3,6 +3,8 @@
 
 (start-suite)
 
+(defn do-testing []
+
 # Basic tests
 (assert (deep= '(+ 1 2) (macex1 '($$ 1 + 2))))
 (assert (deep= ~(,math/pow 1 2) (macex1 '($$ 1 ** 2))))
@@ -70,5 +72,7 @@
 (assert (= false ($$ :a not= :a)))
 (assert (= true ($$ :b not= :a)))
 (assert ($$ 10 <= 20 and 30 < 40))
+
+) (do-testing)
 
 (end-suite)

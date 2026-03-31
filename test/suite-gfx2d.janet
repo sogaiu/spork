@@ -1,5 +1,5 @@
-(use ../spork/test)
-(import ../spork/path)
+(use spork/test)
+(import spork/path)
 
 (use spork/gfx2d)
 

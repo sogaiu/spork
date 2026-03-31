@@ -1,6 +1,6 @@
-(use ../spork/misc)
-(use ../spork/test)
-(use ../spork/math)
+(use spork/misc)
+(use spork/test)
+(use spork/math)
 
 (start-suite)
 

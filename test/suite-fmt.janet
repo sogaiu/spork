@@ -1,5 +1,5 @@
-(use ../spork/test)
-(import ../spork/fmt)
+(use spork/test)
+(import spork/fmt)
 
 (start-suite)
 

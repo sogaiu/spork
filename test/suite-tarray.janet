@@ -1,5 +1,5 @@
-(use ../spork/test)
-(use ../spork/math)
+(use spork/test)
+(use spork/math)
 (import spork/tarray)
 
 (start-suite)

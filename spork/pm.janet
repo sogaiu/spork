@@ -218,7 +218,7 @@
   [bundle-name]
   (manifest-pm-extract (bundle/manifest bundle-name)))
 
-(defn- name-lookup
+(defn name-lookup
   "Find the bundle name of a bundle address"
   [bundle-addr]
   (def {:url url

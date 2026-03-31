@@ -1,6 +1,6 @@
-(use ../spork/test)
-(import ../spork/msg)
-(import ../spork/netrepl)
+(use spork/test)
+(import spork/msg)
+(import spork/netrepl)
 
 (start-suite)
 

@@ -1,5 +1,5 @@
-(use ../spork/test)
-(import ../spork/mdz)
+(use spork/test)
+(import spork/mdz)
 
 (start-suite)
 (assert-docs "../spork/mdz")

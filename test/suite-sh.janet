@@ -1,6 +1,6 @@
-(use ../spork/test)
-(import ../spork/sh)
-(import ../spork/path)
+(use spork/test)
+(import spork/sh)
+(import spork/path)
 
 (start-suite)
 

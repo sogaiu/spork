@@ -1,4 +1,4 @@
-(import ../spork/test)
+(import spork/test)
 
 (test/start-suite)
 # test/assert
