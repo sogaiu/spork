@@ -16,6 +16,8 @@ Source code lives on both GitHub and SourceHut
 * https://github.com/janet-lang/spork
 * https://git.sr.ht/~bakpakin/spork
 
+While the master branch should be reasonably stable, and CI-breaking issues will be fixed promptly, it is not as stable as a tagged release.
+
 ## Build
 
 ```

@@ -76,5 +76,5 @@
   :name "spork/gfx2d"
   :source @["spork/gfx2d-codegen.janet" "src/stb.janet"]
   :deps @["deps/default_font.h" "deps/tall_font.h" "deps/olive_font.h"]
-  :ldflags @[;default-ldflags "-lm"]
+  :ldflags (distinct @[;default-ldflags "-lm"])
   :cflags @[;default-cflags "-Ideps/stb" "-Ideps" "-Wall"])
