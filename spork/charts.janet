@@ -109,7 +109,72 @@
   (def x :shadow (if (= 0 x) (math/abs x) x)) # no negative 0, messes up rendering!
   (* (math/ceil (/ x n)) n))
 
-# TODO - bias light or dark depending on background
+###
+### Color Maps
+### mapping real numbers in range [0, 1] to colors
+###
+
+(defn- lerp [x y t] (+ (* x t) (* y (- 1 t))))
+(defn- clamp [x a b] (cond (< x a) a (< b x) b x))
+
+(defn color-lerp
+  [a b t]
+  "Linearly interpolate between 2 colors in RGB space. Colors are srgb encoded as 32 bit unsigned integers."
+  (def [ar ag ab aa] (g/as-srgb a))
+  (def [br bg bb ba] (g/as-srgb b))
+  (g/srgb
+    (lerp ar br t)
+    (lerp ag bg t)
+    (lerp ab bb t)
+    (lerp aa ba t)))
+
+(defn color-map
+  "Create a function that linearly interpolates between colors for colormapping."
+  [& colors]
+  (def n-colors (length colors))
+  (def n-1-colors (- n-colors 1))
+  (fn :interp
+    [t]
+    (def t :shadow (clamp t 0 1))
+    (def a-index (math/floor (* t n-1-colors)))
+    (def b-index (+ 1 a-index))
+    (if (> b-index n-1-colors) (break (last colors)))
+    (def t-at-a (/ a-index n-1-colors))
+    (def t-at-b (/ b-index n-1-colors))
+    (def ab-interval (- t-at-b t-at-a))
+    (def u (clamp (/ (- t t-at-a) ab-interval) 0 1))
+    (color-lerp (in colors b-index) (in colors a-index) u)))
+
+(defn invert-color-map
+  "Create an inverted color-map from an existing color map."
+  [mapping]
+  (fn :inverted-map [t] (mapping (- 1 t))))
+
+(def color-maps
+  ```
+  A table containing various default color maps that can be used for rendering heat map data.
+  Each value is a function mapping real numbers in the range [0, 1] to colors represented as 32 bit integers.
+  ```
+  @{
+    :grayscale (color-map g/black g/white)
+    :turbo
+    (color-map
+      0xFF3D1331 0xFF742B39 0xFFA34140 0xFFCA5845 0xFFE56D47 0xFFF88246
+      0xFFFF9641 0xFFF7AC34 0xFFE8BF26 0xFFD2D21A 0xFFBDE018 0xFFA9EC23
+      0xFF90F53A 0xFF74FA58 0xFF5AFE78 0xFF43FE97 0xFF38FAAD 0xFF34F1C3
+      0xFF35E6D6 0xFF39D7E8 0xFF3AC7F4 0xFF36B4FC 0xFF2F9FFE 0xFF2587FC
+      0xFF1A6FF7 0xFF1157EE 0xFF0A44E3 0xFF0533D4 0xFF0325C4 0xFF0118AE
+      0xFF010E97 0xFF03047B)
+    :viridis
+    (color-map
+      0xFF03CDFA 0xFF01C9D3 0xFF01C3AB 0xFF03BD88 0xFF07B665 0xFF0CAF4B
+      0xFF12A837 0xFF199D26 0xFF219318 0xFF288A0F 0xFF2E7F09 0xFF347505
+      0xFF396903 0xFF3D5F02 0xFF415602 0xFF444D02 0xFF454403 0xFF463B03
+      0xFF463504 0xFF462D05 0xFF462705 0xFF462107 0xFF451B08 0xFF441609
+      0xFF41100B 0xFF3D0C0D 0xFF39090E 0xFF34050F 0xFF2D030F 0xFF24010F
+      0xFF1D000F 0xFF16000D)
+    })
+
 (defn- color-hash
   "Given a value, generate a pseudo-random color for visualization"
   [x &opt color-seed]
@@ -118,6 +183,10 @@
   (g/rgb (+ 0.2 (* 0.6 (math/rng-uniform rng)))
          (+ 0.2 (* 0.6 (math/rng-uniform rng)))
          (+ 0.2 (* 0.6 (math/rng-uniform rng)))))
+
+###
+### Graph Axes Calculation and rendering
+###
 
 (defn- calculate-data-bounds
   "Given a data frame, return [min-x max-x min-y max-y].
@@ -862,39 +931,9 @@
 ###
 ### Heat Maps
 ###
-### Rather than using a "data-frame" abstraction, we just provide a way to provide a function that maps input row and column to a color or value.
-### Such a function is usually a oneliner given most reasonable data structures
-
-(defn- lerp [x y t] (+ (* x t) (* y (- 1 t))))
-(defn- clamp [x a b] (cond (< x a) a (< b x) b x))
-
-(defn color-lerp
-  [a b t]
-  "Linearly interpolate between 2 colors in RGB space. Colors are srgb encoded as 32 bit unsigned integers."
-  (def [ar ag ab aa] (g/as-srgb a))
-  (def [br bg bb ba] (g/as-srgb b))
-  (g/srgb
-    (lerp ar br t)
-    (lerp ag bg t)
-    (lerp ab bb t)
-    (lerp aa ba t)))
-  
-(defn color-map
-  "Create a function that linearly interpolates between colors for colormapping."
-  [& colors]
-  (def n-colors (length colors))
-  (def n-1-colors (- n-colors 1))
-  (fn :interp
-    [t]
-    (def t :shadow (clamp t 0 1))
-    (def a-index (math/floor (* t n-1-colors)))
-    (def b-index (+ 1 a-index))
-    (if (> b-index n-1-colors) (break (last colors)))
-    (def t-at-a (/ a-index n-1-colors))
-    (def t-at-b (/ b-index n-1-colors))
-    (def ab-interval (- t-at-b t-at-a))
-    (def u (clamp (/ (- t t-at-a) ab-interval) 0 1))
-    (color-lerp (in colors b-index) (in colors a-index) u)))
+### Rather than using a "data-frame" abstraction, we just provide a way to
+### provide a function that maps input row and column to a color or value. Such
+### a function is usually a oneliner given most reasonable data structures.
 
 (defn plot-heat-map
   ```

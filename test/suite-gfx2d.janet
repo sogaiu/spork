@@ -395,7 +395,7 @@
     (charts/draw-legend legend-view ;legend-args)
 
     # Check final image
-    # (check-image canvas "big-bar-chart.png")
+    #(check-image canvas "big-bar-chart.png")
     (check-image (resize canvas 192 108) "bar-chart.png")))
 
 (test-bar-chart)
@@ -426,5 +426,29 @@
   (check-image canvas "text_pinwheel.png"))
 
 (test-text-pinwheel)
+
+(defn test-heat-map-1
+  [mapping]
+  (def cmap (get charts/color-maps mapping))
+  (defn distfrom [px py] (fn [x y] (let [dx (- px x) dy (- py y)] (math/sqrt (+ (* dx dx) (* dy dy))))))
+  (def d1 (distfrom 10 10))
+  (def d2 (distfrom 20 18))
+  (def d3 (distfrom 37 8))
+  (def chart
+    (charts/heat-map-chart
+      :width (* 0.2 1920) :height (* 0.2 1080)
+      :num-columns (* 1 48) :num-rows (* 1 27)
+      :font (load-font "examples/fonts/Roboto-Regular.ttf" 12)
+      :title (string "Heat Map Min Distance Test " (string/ascii-upper mapping))
+      #:cell-text-color 0xFFFFFFFF
+      #:cell-text-fn (fn [x y] (string/format "%d,%d" x y))
+      :color-fn (fn [x y]
+                  (def t (min (* 0.1 (d1 x y)) (* 0.2 (d2 x y)) (* 0.03 (d3 x y))))
+                  (cmap (+ (* 0.01 (math/random)) t)))))
+  (check-image chart (string "heat_map_" mapping ".png")))
+
+(test-heat-map-1 :viridis)
+(test-heat-map-1 :turbo)
+(test-heat-map-1 :grayscale)
 
 (end-suite)
