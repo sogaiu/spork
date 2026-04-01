@@ -27,8 +27,8 @@
 ### [x] - bar chart
 ### [x] - area chart
 ### [ ] - horizontal bar charts
-### [ ] - heat map
-### [ ] - more test charts
+### [ ] - multi-bar charts
+### [x] - heat map
 ### [ ] - box-and-whisker plots
 ### [ ] - error bars on line chart
 ### [ ] - fill between chart
@@ -53,6 +53,8 @@
 (def- default-background-color g/white)
 (def- default-grid-color (g/rgb 0.8 0.8 0.8))
 (def- default-padding 16)
+(def- default-width 1280)
+(def- default-height 720)
 
 (defn- check-enum-impl
   "Assert that a value x is in options, and give a nice error if not"
@@ -771,7 +773,7 @@
   * :inner-padding - the number of pixels of white space between x-min and the x-axes as well as y-min and the y-axes.
   * :x-label - optional label for the x axis
   * :y-label - optional label for the y axis
-  * :grid - set to true to turn on drawing grid lines
+  * :grid - how to draw grid lines. One of :none, :solid, or :stipple
   * :x-suffix - add a string suffix to each tick label on the x-axis
   * :y-suffix - add a string suffix to each tick label on the x-axis
   * :x-prefix - add a string prefix to each tick label on the y-axis
@@ -823,8 +825,8 @@
   # Check parameters and set defaults.
   (assert x-column)
   (assert y-column)
-  (default width 1280)
-  (default height 720)
+  (default width default-width)
+  (default height default-height)
   (default padding (dyn *padding* default-padding))
   (default point-radius 3)
   (default color-map {})
@@ -837,7 +839,7 @@
   (default legend :none)
 
   # Check enums
-  (enum grid :none :solid :stipple :none)
+  (enum grid :none :solid :stipple)
   (enum line-style :plot :stipple :stroke :bar :none :area) # - allow for dictionary of styles
   (enum legend :none :top :top-left :top-right :bottom-left :bottom-right)
 
@@ -935,6 +937,11 @@
 ### provide a function that maps input row and column to a color or value. Such
 ### a function is usually a oneliner given most reasonable data structures.
 
+(defn- color-value
+  [c]
+  (def [r g b a] (g/as-srgb c))
+  (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b)))
+
 (defn plot-heat-map
   ```
   Render a heat map on a set of axis. Will nicely fill the passed in image, so use a subview to draw to a section of the chart.
@@ -968,7 +975,7 @@
   (def {:width canvas-width :height canvas-height} (g/unpack canvas))
   (default box-gap 0)
   (default font (dyn *font* default-font))
-  (default cell-text-color (dyn *text-color* default-text-color))
+  (default cell-text-color nil) # (dyn *text-color* default-text-color))
 
   # Calculate box sizes - not always integers!
   (def box-width (- (/ (- canvas-width box-gap) num-columns) box-gap))
@@ -991,12 +998,52 @@
       (def [w h] (text-measure text font 1 0))
       (def text-x (math/floor (- (mean [pixel-x next-pixel-x]) (/ w 2))))
       (def text-y (math/floor (- (mean [pixel-y next-pixel-y]) (/ h 2))))
-      (text-draw canvas text-x text-y text cell-text-color font 1 0)))
+      (def tcolor (or false (if (< 0.6 (color-value color)) g/black g/white))) # black or white, maximizing contrast
+      (text-draw canvas text-x text-y text tcolor font 1 0)))
 
   canvas)
 
 (defn heat-map-chart
-  "Generate a heat map"
+  ```
+  Generate a heat map.
+
+  Render a heat map on a set of axis. Will nicely fill the passed in image, so use a subview to draw to a section of the chart.
+
+  Basic Parameters
+  * :width - New canvas width in pixels
+  * :height - New canvas height in pixels
+  * :color-fn - Function `(color-fn x y)` that returns a gfx2d color used to color each cell in the heat-map. If color-fn evaluates to a falsey value, that cell will be left blank.
+  * :cell-text-fn - Function `(cell-text-fn x y)` that returns an optional string to render for each cell. If the function evaluates to nil, no text will be drawn for that cell.
+  * :num-columns - Number of columns to draw.
+  * :num-rows - Number of rows to draw.
+  * :save-as - optional path to save the chart
+
+  Axes Styling
+  * :grid - how to draw grid lines. One of :none, :solid, or :stipple
+  * :x-ticks - manually set the tick marks on the X axis instead of auto-detecting them
+  * :inner-padding - the number of pixels of white space between x-min and the x-axes as well as y-min and the y-axes.
+  * :x-label - optional label for the x axis
+  * :y-label - optional label for the y axis
+  * :x-suffix - add a string suffix to each tick label on the x-axis
+  * :y-suffix - add a string suffix to each tick label on the x-axis
+  * :x-prefix - add a string prefix to each tick label on the y-axis
+  * :y-prefix - add a string prefix to each tick label on the y-axis
+  * :x-minor-ticks - how many, if any, small ticks to add between each large tick mark on the x axis
+  * :y-minor-ticks - how many, if any, small ticks to add between each large tick mark on the y axis
+  * :x-labels-vertical - Turn x labels vertical so more can fit on the axis
+  * :tick-length - how long to make major tick marks
+
+  Chart Styling
+  * :box-gap - Number of pixels between boxes on the heat map. Default is 0.
+  * :cell-font - font used to draw optional text in cells
+  * :cell-text-color - color of text, defaults to black
+  * :font - font used to draw title and axes
+  * :text-color - color of axes and title text
+  * :padding - Number of pixels to separate various elements of the chart
+  * :background-color - chart background color
+
+  Returns a new canvas.
+  ```
   [&named
    width height
    color-fn cell-text-fn
@@ -1006,19 +1053,20 @@
    text-color cell-text-color
    x-min x-max y-min y-max
    format-x format-y
-   padding title
+   padding inner-padding
+   title
+   grid
    box-gap
    legend
-   grid
    x-label y-label
    x-suffix x-prefix y-suffix y-prefix
-   x-ticks x-minor-ticks y-minor-ticks
+   x-ticks x-minor-ticks y-minor-ticks tick-length
    x-labels-vertical
    save-as]
 
   # Check parameters and set defaults.
-  (default width 1280)
-  (default height 720)
+  (default width default-width)
+  (default height default-height)
   (default padding (dyn *padding* default-padding))
   (default background-color (dyn *background-color* default-background-color))
   (default text-color (dyn *text-color* default-text-color))
@@ -1026,6 +1074,7 @@
   (default font (dyn *font* default-font))
   (default legend :none)
   (default grid :none)
+  (default tick-length 0)
 
   # Get canvas
   (def canvas (g/blank width height 4))
@@ -1045,6 +1094,7 @@
   (def view (g/viewport canvas 0 title-padding width (- height title-padding)))
 
   # Draw axes
+  # TODO the default axis for heat maps should be a little different than for line charts.
   (def {:width view-width :height view-height} (g/unpack view))
   (default x-min -0.5)
   (default y-min -0.5)
@@ -1052,7 +1102,8 @@
   (default y-max (+ -0.5 num-rows))
   (def [graph-view to-pixel-space _to-metric-space]
     (draw-axes view
-               :padding padding :font font
+               :padding padding :inner-padding inner-padding
+               :font font
                :grid grid
                :min-x-spacing 1 :min-y-spacing 1
                :format-x format-x :format-y format-y
@@ -1060,7 +1111,7 @@
                :y-suffix y-suffix :y-prefix y-prefix
                :x-min x-min :x-max x-max
                :y-min y-min :y-max y-max
-               :x-ticks x-ticks :tick-length 0
+               :x-ticks x-ticks :tick-length tick-length
                :x-label x-label :y-label y-label
                :x-minor-ticks x-minor-ticks
                :y-minor-ticks y-minor-ticks
