@@ -613,8 +613,6 @@
     (set C.a (lerp A.a B.a t))
     (return (hdr-to-uint C)))
 
-
-
   (function blend-over :static :inline
     ```
     Blend over (normal alpha compositing, like a painter)

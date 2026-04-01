@@ -26,10 +26,10 @@
 ### [x] - stippled grid lines
 ### [x] - bar chart
 ### [x] - area chart
+### [ ] - horizontal bar charts
 ### [ ] - heat map
 ### [ ] - more test charts
-### [ ] - pie chart
-### [ ] - box-and-whisker / violin plots
+### [ ] - box-and-whisker plots
 ### [ ] - error bars on line chart
 ### [ ] - fill between chart
 ### [x] - handle nils in y-columns for sparse data
@@ -322,6 +322,7 @@
   * :x-label - optional label for the x axis
   * :y-label - optional label for the y axis
   * :padding - the number of pixels to leave around all drawn content
+  * :inner-padding - how many pixels to add between the axes frame and the internal metric space. Defaults to 8.
   * :font - the font to use for axis text
   * :{x,y}-{min,max} - The bounds for coordinate system to draw
   * :grid - Style for drawing grid-lines. Can be nil (none), :none, :solid, or :stipple
@@ -337,6 +338,7 @@
   * :x-labels-vertical - Turn x labels vertical so more can fit on the axis
   * :min-x-spacing - When guessing x ticks, allow setting a lower limit to the metric spacing between ticks
   * :min-y-spacing - When guessing y ticks, allow setting a lower limit to the metric spacing between ticks
+  * :tick-length - how many pixels long to make major tick marks (minor tick marks are 1/2 major tick marks)
 
   Returns a tuple [view:gfx2d/Image to-pixel-space:fn to-metric-space:fn]
 
@@ -344,10 +346,10 @@
   * `(to-pixel-space metric-x metric-y)` converts metric space coordinates to pixel space for plotting on `view`.
   * `(to-metric-space pixel-x pixel-y)` converts pixel coordinates to the metric space.
   ```
-  [canvas &named padding font
+  [canvas &named padding inner-padding font
    x-min x-max y-min y-max min-x-spacing min-y-spacing
    grid format-x format-y
-   x-label y-label
+   x-label y-label tick-length
    x-suffix x-prefix y-suffix y-prefix
    x-ticks x-minor-ticks y-minor-ticks x-labels-vertical]
 
@@ -361,7 +363,7 @@
   (assert y-max)
 
   # Check enums
-  (enum grid :none :solid :stipple :none)
+  (enum grid :none :solid :stipple)
 
   (def {:width width :height height} (g/unpack canvas))
   (def line-color (dyn *stroke-color* default-stroke-color))
@@ -372,12 +374,14 @@
   (assert (pos? orig-dx))
   (assert (pos? orig-dy))
   (def font-height (let [[_ h] (text-measure "Mg" font font-scale)] h))
+  (default inner-padding 8)
   (def font-half-height (div font-height 2))
-  (def tick-height (* font-scale 8))
-  #(def tick-height (* font-scale 24))
+  (default tick-length (- (* font-scale 20) 6))
   (def has-grid (not= grid :none))
   (def stipple-cycle (if (= grid :stipple) 8 0))
   (def stipple-on 4)
+  (def tick-height (if has-grid 10 (+ tick-length 6)))
+  (def tick-trim (if has-grid 0 (- tick-height tick-length)))
 
   # Initial guess for x label width
   (def [_xticks _xformat x-labels-width x-labels-height]
@@ -409,7 +413,7 @@
 
   # Calculate left and right padding once y-axis is guessed
   (def outer-left-padding (+ padding y-axis-tick-label-width (if y-label (+ padding font-height) 0)))
-  (def outer-right-padding outer-left-padding) # make it symetrical, looks much nicer
+  (def outer-right-padding outer-left-padding) # make it symmetrical, looks much nicer
   #(def outer-right-padding (+ 2 padding)) # fills the space better - add centering option?
   (def left-padding (+ outer-left-padding tick-height))
   (def right-padding outer-right-padding)
@@ -420,10 +424,10 @@
     (text-draw canvas padding (div (+ height w top-padding (- bottom-padding)) 2) y-label line-color font font-scale 1))
 
   # Closure to convert metric space to pixel space - only can be done after full padding calculations
-  (def scale-x (/ (- width left-padding right-padding tick-height tick-height) orig-dx))
-  (def scale-y (- (/ (- height top-padding bottom-padding tick-height tick-height) orig-dy)))
-  (def offset-x (- left-padding (- tick-height) (* scale-x x-min)))
-  (def offset-y (- height bottom-padding tick-height (* scale-y y-min)))
+  (def scale-x (/ (- width left-padding right-padding inner-padding inner-padding) orig-dx))
+  (def scale-y (- (/ (- height top-padding bottom-padding inner-padding inner-padding) orig-dy)))
+  (def offset-x (- left-padding (- inner-padding) (* scale-x x-min)))
+  (def offset-y (- height bottom-padding inner-padding (* scale-y y-min)))
   (defn convert
     [metric-x metric-y]
     [(+ offset-x (* scale-x metric-x))
@@ -438,7 +442,7 @@
     (text-draw canvas (- outer-left-padding text-width 3) (- rounded-pixel-y font-half-height) text line-color font font-scale)
     (if has-grid
       (g/plot canvas left-padding rounded-pixel-y (- width right-padding) rounded-pixel-y grid-color stipple-cycle stipple-on)
-      (g/plot canvas outer-left-padding rounded-pixel-y (+ outer-left-padding tick-height) rounded-pixel-y grid-color)))
+      (g/plot canvas (+ tick-trim outer-left-padding) rounded-pixel-y (+ outer-left-padding tick-height) rounded-pixel-y grid-color)))
 
   # Draw X axis - allow manual override for x tick marks
   (def [xticks xformat]
@@ -454,7 +458,7 @@
       (text-draw canvas (- rounded-pixel-x -1 (* text-width 0.5)) (- height outer-bottom-padding -3) text line-color font font-scale))
     (if has-grid
       (g/plot canvas rounded-pixel-x top-padding rounded-pixel-x (- height bottom-padding) grid-color stipple-cycle stipple-on)
-      (g/plot canvas rounded-pixel-x (- height outer-bottom-padding) rounded-pixel-x (- height outer-bottom-padding tick-height) grid-color)))
+      (g/plot canvas rounded-pixel-x (- height outer-bottom-padding tick-trim) rounded-pixel-x (- height outer-bottom-padding tick-height) grid-color)))
 
   # Draw minor x tick marks
   (when (and x-minor-ticks (< 1 (length xticks)))
@@ -499,10 +503,10 @@
   (def view (g/viewport canvas
                         (+ 1 left-padding) (+ 1 top-padding)
                         (- frame-width 1) (- frame-height 1)))
-  (def frame-scale-x (/ (- frame-width tick-height tick-height) orig-dx))
-  (def frame-scale-y (- (/ (- frame-height tick-height tick-height) orig-dy)))
-  (def frame-offset-x (- tick-height (* frame-scale-x x-min)))
-  (def frame-offset-y (- frame-height -1 tick-height (* frame-scale-y y-min)))
+  (def frame-scale-x (/ (- frame-width inner-padding inner-padding) orig-dx))
+  (def frame-scale-y (- (/ (- frame-height inner-padding inner-padding) orig-dy)))
+  (def frame-offset-x (- inner-padding (* frame-scale-x x-min)))
+  (def frame-offset-y (- frame-height -1 inner-padding (* frame-scale-y y-min)))
   (defn view-convert
     [metric-x metric-y]
     [(+ frame-offset-x (* frame-scale-x metric-x))
@@ -583,7 +587,7 @@
                      :line-style-per-column line-style-per-column
                      :line-style line-style)
     # The resize + blend must match, as well as the destination pixels!
-    # After resize, alpha is premultiplied
+    # After resize, alpha is pre-multiplied
     (g/resize-into temp-canvas new-canvas true)
     (g/stamp-blend canvas temp-canvas :premul)
     (break canvas))
@@ -696,6 +700,7 @@
   * :x-ticks - manually set the tick marks on the X axis instead of auto-detecting them
 
   Axes Styling
+  * :inner-padding - the number of pixels of white space between x-min and the x-axes as well as y-min and the y-axes.
   * :x-label - optional label for the x axis
   * :y-label - optional label for the y axis
   * :grid - set to true to turn on drawing grid lines
@@ -706,6 +711,7 @@
   * :x-minor-ticks - how many, if any, small ticks to add between each large tick mark on the x axis
   * :y-minor-ticks - how many, if any, small ticks to add between each large tick mark on the y axis
   * :x-labels-vertical - Turn x labels vertical so more can fit on the axis
+  * :tick-length - how long to make major tick marks
 
   Chart Styling
   * :padding - the number of pixels of white space around various elements of the chart
@@ -732,12 +738,13 @@
    font background-color text-color color-map
    point-radius
    x-min x-max y-min y-max
-   padding title
+   padding inner-padding title
    circle-points
    scatter grid legend super-sample stroke-thickness
    format-x format-y
    save-as
    legend-map
+   tick-length
    line-style line-style-per-column
    x-label y-label
    x-suffix x-prefix y-suffix y-prefix
@@ -804,14 +811,15 @@
                              x-min x-max y-min y-max)))
   (def [graph-view to-pixel-space _to-metric-space]
     (draw-axes view
-               :padding padding :font font
+               :padding padding :inner-padding inner-padding
+               :font font
                :grid grid
                :format-x format-x :format-y format-y
                :x-suffix x-suffix :x-prefix x-prefix
                :y-suffix y-suffix :y-prefix y-prefix
                :x-min x-min :x-max x-max
                :y-min y-min :y-max y-max
-               :x-ticks x-ticks
+               :x-ticks x-ticks :tick-length tick-length
                :x-label x-label :y-label y-label
                :x-minor-ticks x-minor-ticks
                :y-minor-ticks y-minor-ticks
@@ -920,7 +928,7 @@
 
   canvas)
 
-(defn heat-map
+(defn heat-map-chart
   "Generate a heat map"
   [&named
    width height
@@ -985,7 +993,7 @@
                :y-suffix y-suffix :y-prefix y-prefix
                :x-min x-min :x-max x-max
                :y-min y-min :y-max y-max
-               :x-ticks x-ticks
+               :x-ticks x-ticks :tick-length 0
                :x-label x-label :y-label y-label
                :x-minor-ticks x-minor-ticks
                :y-minor-ticks y-minor-ticks
@@ -993,14 +1001,14 @@
 
   # Plot the heat-map
   (plot-heat-map
-   :canvas graph-view
-   :color-fn color-fn
-   :cell-text-fn cell-text-fn
-   :num-columns num-columns
-   :num-rows num-rows
-   :font cell-font
-   :cell-text-color cell-text-color
-   :box-gap box-gap)
+    :canvas graph-view
+    :color-fn color-fn
+    :cell-text-fn cell-text-fn
+    :num-columns num-columns
+    :num-rows num-rows
+    :font cell-font
+    :cell-text-color cell-text-color
+    :box-gap box-gap)
 
   # TODO - legend?
 
