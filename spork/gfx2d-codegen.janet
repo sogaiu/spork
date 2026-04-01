@@ -578,13 +578,33 @@
                        (cast int (* 0xFF b))
                        (cast int (* 0xFF a)))))
 
-  (cfunction rgb-pre-mul
-    "Make an RRB color constants from components and premultiply the alpha"
+  (cfunction srgb
+    "Make an sRGB color constant from components. Each component is a number from 0 to 1.
+    A gamma of 2.2 is applied to each RGB component."
     [r:double g:double b:double &opt a:double=1.0] -> uint32_t
-    (return (colorjoin (cast int (* 0xFF r a))
-                       (cast int (* 0xFF g a))
-                       (cast int (* 0xFF b a))
-                       (cast int (* 0xFF a))))))
+    (return (rgb (pow r 2.2) (pow g 2.2) (pow b 2.2) a)))
+
+  (cfunction as-rgb
+    "Extract a 4 vector from a color"
+    [color:uint32_t] -> JanetTuple
+    (def hdr:ColorHDR (colorsplit-hdr color))
+    (def tup:*Janet (janet-tuple-begin 4))
+    (set (aref tup 0) (janet-wrap-number hdr.r))
+    (set (aref tup 1) (janet-wrap-number hdr.g))
+    (set (aref tup 2) (janet-wrap-number hdr.b))
+    (set (aref tup 3) (janet-wrap-number hdr.a))
+    (return (janet-tuple-end tup)))
+
+  (cfunction as-srgb
+    "Extract a 4 vector from a color. Interprets 8 bit color components for RGB as having a gamma of 2.2."
+    [color:uint32_t] -> JanetTuple
+    (def hdr:ColorHDR (colorsplit-hdr color))
+    (def tup:*Janet (janet-tuple-begin 4))
+    (set (aref tup 0) (janet-wrap-number (pow hdr.r (/ 1.0 2.2))))
+    (set (aref tup 1) (janet-wrap-number (pow hdr.g (/ 1.0 2.2))))
+    (set (aref tup 2) (janet-wrap-number (pow hdr.b (/ 1.0 2.2))))
+    (set (aref tup 3) (janet-wrap-number hdr.a))
+    (return (janet-tuple-end tup))))
 
 ###
 ### Blending modes
