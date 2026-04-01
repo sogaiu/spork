@@ -29,6 +29,7 @@
 ### [ ] - heat map
 ### [ ] - more test charts
 ### [ ] - pie chart
+### [ ] - box-and-whisker / violin plots
 ### [ ] - error bars on line chart
 ### [ ] - fill between chart
 ### [x] - handle nils in y-columns for sparse data
@@ -174,7 +175,7 @@
 (defn- guess-axis-ticks
   "Given a set of numeric values, generate a reasonable array of tick marks given a minimum spacing.
   Biases the tick spacing to a power of 10 (or by 5s) for nicer charts by default"
-  [minimum maximum pixel-span min-spacing vertical font prefix suffix &opt force-formatter no-retry] # TODO - too many unnamed arguments
+  [minimum maximum pixel-span min-spacing vertical font prefix suffix min-delta &opt force-formatter no-retry] # TODO - too many unnamed arguments
   (default suffix "")
   (default prefix "")
   (var max-ticks (math/floor (/ pixel-span min-spacing)))
@@ -191,6 +192,9 @@
   # Allow for steps of 5 as well
   (if (> (- (math/ceil delta-log10) delta-log10) (math/log10 2))
     (*= delta 0.5))
+  # e.g. allow limiting to integers
+  (when min-delta
+    (set delta (max min-delta delta)))
   (def epsilon (* delta 0.001))
 
   # Get tick metrics
@@ -224,7 +228,7 @@
   # Retry if ticks are too close together
   (unless no-retry
     (if (> (+ padding10 min-spacing) delta)
-      (break (guess-axis-ticks minimum maximum pixel-span min-spacing vertical font prefix suffix force-formatter true))))
+      (break (guess-axis-ticks minimum maximum pixel-span min-spacing vertical font prefix suffix min-delta force-formatter true))))
 
   # TODO - use text boundaries to set padding
   [result formatter max-text-width max-text-height])
@@ -331,6 +335,8 @@
   * :x-minor-ticks - How many minor tick marks, if any, to place between major tick marks on the x axis
   * :y-minor-ticks - How many minor tick marks, if any, to place between major tick marks on the y axis
   * :x-labels-vertical - Turn x labels vertical so more can fit on the axis
+  * :min-x-spacing - When guessing x ticks, allow setting a lower limit to the metric spacing between ticks
+  * :min-y-spacing - When guessing y ticks, allow setting a lower limit to the metric spacing between ticks
 
   Returns a tuple [view:gfx2d/Image to-pixel-space:fn to-metric-space:fn]
 
@@ -339,7 +345,7 @@
   * `(to-metric-space pixel-x pixel-y)` converts pixel coordinates to the metric space.
   ```
   [canvas &named padding font
-   x-min x-max y-min y-max
+   x-min x-max y-min y-max min-x-spacing min-y-spacing
    grid format-x format-y
    x-label y-label
    x-suffix x-prefix y-suffix y-prefix
@@ -383,7 +389,7 @@
           (def [w h] (text-measure (fmt xt) font font-scale))
           (set maxh (max maxh (if x-labels-vertical w h))))
         [nil nil maxh maxh])
-      (guess-axis-ticks x-min x-max width (* font-scale 20) x-labels-vertical font x-prefix x-suffix format-x)))
+      (guess-axis-ticks x-min x-max width (* font-scale 20) x-labels-vertical font x-prefix x-suffix min-x-spacing format-x)))
 
   # Calculate top and bottom padding
   (def outer-top-padding (max padding font-half-height))
@@ -399,7 +405,7 @@
 
   # Guess y axis ticks - used to calculate left and right padding
   (def [yticks yformat y-axis-tick-label-width]
-    (guess-axis-ticks y-min y-max (- height top-padding bottom-padding) (* font-scale 20) true font y-prefix y-suffix format-y))
+    (guess-axis-ticks y-min y-max (- height top-padding bottom-padding) (* font-scale 20) true font y-prefix y-suffix min-y-spacing format-y))
 
   # Calculate left and right padding once y-axis is guessed
   (def outer-left-padding (+ padding y-axis-tick-label-width (if y-label (+ padding font-height) 0)))
@@ -437,7 +443,7 @@
   # Draw X axis - allow manual override for x tick marks
   (def [xticks xformat]
     (if x-ticks [x-ticks (if format-x format-x string)]
-      (guess-axis-ticks x-min x-max (- width left-padding right-padding) 20 x-labels-vertical font x-prefix x-suffix format-x)))
+      (guess-axis-ticks x-min x-max (- width left-padding right-padding) 20 x-labels-vertical font x-prefix x-suffix min-x-spacing format-x)))
   (each metric-x xticks
     (def [pixel-x _] (convert metric-x 0))
     (def rounded-pixel-x (math/round pixel-x))
@@ -528,7 +534,7 @@
   * :point-radius - how large to make the circles around each point in pixels
   * :super-sample - use super sampling to draw a larger image and then scale it down for anti-aliasing.
   * :bar-padding - space between bars in bar-charts
-  * :stroke-thickness - thickness in pixels of the stroke of the graph when :line-type = :stroke 
+  * :stroke-thickness - thickness in pixels of the stroke of the graph when :line-type = :stroke
   * :x-colors - for bar and scatter plots, optionally set per-point/per-bar colors with an function (f x y index) called on each point.
   ```
   [&named
@@ -713,7 +719,7 @@
   * :line-style - How to draw lines. Can be one of :stroke, :plot, :none, :bar, :area, or :stipple. Default is :plot.
   * :line-style-per-column - Optional dictionary to override line style by y-column name.
   * :super-sample - Super Sample anti-aliasing for chart lines. Is a bit slow, but makes smooth plots. Works best with :stroke and :bar
-  * :stroke-thickness - thickness in pixels of the stroke of the graph when :line-type = :stroke 
+  * :stroke-thickness - thickness in pixels of the stroke of the graph when :line-type = :stroke
 
   Axis Boundaries
   * :x-min - minimum x coordinate on chart
@@ -849,59 +855,80 @@
 ###
 ### Heat Maps
 ###
+### Rather than using a "data-frame" abstraction, we just provide a way to provide a function that maps input row and column to a color or value.
+### Such a function is usually a oneliner given most reasonable data structures
 
-(defn- lerp [a b t] (+ (* a t) (* (- 1 t) b)))
-(defn- color-lerp [r g b R G B t] (g/rgb (lerp r R t) (lerp g G t) (lerp b B t)))
-
-(defn plot-heap-map
+(defn plot-heat-map
   ```
-  Render a heap map on a set of axis.
+  Render a heat map on a set of axis. Will nicely fill the passed in image, so use a subview to draw to a section of the chart.
+
+  Basic Parameters
+  * :canvas - A gfx2d/Image to draw on
+  * :color-fn - Function `(color-fn x y)` that returns a gfx2d color (32 bit integer) used to color each cell in the heat-map. If color-fn evaluates to a falsey value, that cell will be left blank.
+  * :cell-text-fn - Function `(cell-text-fn x y)` that returns an optional string to render for each cell.
+  * :num-columns - Number of columns to draw.
+  * :num-rows - Number of rows to draw.
+  * :box-gap - Number of pixels between boxes on the heat map
+  * :font - font used to draw optional text in cells
+  * :cell-text-color - color of text, defaults to black
+
+  Returns the modified original canvas.
   ```
   [&named
    canvas
-   heat-values
+   color-fn
+   cell-text-fn
    num-columns
    num-rows
-   box-gap]
+   box-gap
+   font
+   cell-text-color]
 
   # Check parameters and set defaults.
   (assert num-columns)
   (assert num-rows)
+  (assert color-fn)
   (def {:width canvas-width :height canvas-height} (g/unpack canvas))
-  # (default to-pixel-space (fn :convert [x y] [x y]))
-  (default box-gap 4)
-  #(default background-color (dyn *background-color* default-background-color))
-  #(default text-color (dyn *text-color* default-text-color))
-  #(default font (dyn *font* default-font))
+  (default box-gap 0)
+  (default font (dyn *font* default-font))
+  (default cell-text-color (dyn *text-color* default-text-color))
 
-  (def heat-map-color-min [0.05 0.05 0.6])
-  (def heat-map-color-mid [0.01 0.01 0.01])
-  (def heat-map-color-max [0.82 0.02 0.02])
-  (defn get-color [t]
-    (if (> 0.5 t)
-      (color-lerp ;heat-map-color-min ;heat-map-color-mid (* 2 t))
-      (color-lerp ;heat-map-color-mid ;heat-map-color-max (* 2 (- t 0.5)))))
-
-  # Calculate box sizes
+  # Calculate box sizes - not always integers!
   (def box-width (- (/ (- canvas-width box-gap) num-columns) box-gap))
   (def box-height (- (/ (- canvas-height box-gap) num-rows) box-gap))
-  # TODO - ensure square boxes somehow?
+  (var xx-prev 0)
+  (var yy-prev 0)
   (loop [y :range [0 num-rows]
-         x :range [0 num-columns]]
-    (def color (get-color (math/random)))
-    (g/fill-rect canvas
-                 (+ box-gap (* x (+ box-gap box-width)))
-                 (+ box-gap (* y (+ box-gap box-height)))
-                 box-width box-height color))
+         x :range [0 num-columns]
+         :let [color (color-fn x y)]
+         :when color] # skip empty cells
+    (def yflip (- num-rows 1 y))
+    # Weird math to keep gap sizes consistent for a nice look when things don't divide perfectly.
+    (def pixel-x (math/floor (+ box-gap (* x (+ box-gap box-width)))))
+    (def pixel-y (math/floor (+ box-gap (* yflip (+ box-gap box-height)))))
+    (def next-pixel-x (math/floor (* (+ 1 x) (+ box-gap box-width))))
+    (def next-pixel-y (math/floor (* (+ 1 yflip) (+ box-gap box-height))))
+    (g/fill-rect canvas pixel-x pixel-y (- next-pixel-x pixel-x) (- next-pixel-y pixel-y) color)
+
+    # Per cell text
+    # TODO - get text color by inverting cell color?
+    (when-let [text (and cell-text-fn (cell-text-fn x y))]
+      (def [w h] (text-measure text font font-scale 0))
+      (def text-x (math/floor (- (mean [pixel-x next-pixel-x]) (/ w 2))))
+      (def text-y (math/floor (- (mean [pixel-y next-pixel-y]) (/ h 2))))
+      (text-draw canvas text-x text-y text cell-text-color font font-scale 0)))
 
   canvas)
 
 (defn heat-map
   "Generate a heat map"
   [&named
-   width height heat-values
+   width height
+   color-fn cell-text-fn
    num-columns num-rows
-   font background-color text-color
+   font cell-font
+   background-color
+   text-color cell-text-color
    x-min x-max y-min y-max
    format-x format-y
    padding title
@@ -920,6 +947,7 @@
   (default padding (dyn *padding* default-padding))
   (default background-color (dyn *background-color* default-background-color))
   (default text-color (dyn *text-color* default-text-color))
+  (default cell-text-color text-color)
   (default font (dyn *font* default-font))
   (default legend :none)
   (default grid :none)
@@ -945,12 +973,13 @@
   (def {:width view-width :height view-height} (g/unpack view))
   (default x-min -0.5)
   (default y-min -0.5)
-  (default x-max (+ 0.5 num-columns))
-  (default y-max (+ 0.5 num-rows))
+  (default x-max (+ -0.5 num-columns))
+  (default y-max (+ -0.5 num-rows))
   (def [graph-view to-pixel-space _to-metric-space]
     (draw-axes view
                :padding padding :font font
                :grid grid
+               :min-x-spacing 1 :min-y-spacing 1
                :format-x format-x :format-y format-y
                :x-suffix x-suffix :x-prefix x-prefix
                :y-suffix y-suffix :y-prefix y-prefix
@@ -963,11 +992,14 @@
                :x-labels-vertical x-labels-vertical))
 
   # Plot the heat-map
-  (plot-heap-map
+  (plot-heat-map
    :canvas graph-view
-   :heat-values heat-values
+   :color-fn color-fn
+   :cell-text-fn cell-text-fn
    :num-columns num-columns
    :num-rows num-rows
+   :font cell-font
+   :cell-text-color cell-text-color
    :box-gap box-gap)
 
   # TODO - legend?
