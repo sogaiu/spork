@@ -28,8 +28,9 @@
 ### [x] - area chart
 ### [ ] - horizontal bar charts
 ### [ ] - multi-bar charts
+### [ ] - flame graph
+### [ ] - packing chart
 ### [x] - heat map
-### [ ] - box-and-whisker plots
 ### [ ] - error bars on line chart
 ### [ ] - fill between chart
 ### [x] - handle nils in y-columns for sparse data
@@ -93,6 +94,7 @@
   (default font :default)
   (default scale 1)
   (default orientation 0)
+  # Uncomment to check text bounding boxes for layout calculations
   #(def [w h] (text-measure text font scale orientation))
   #(draw-frame image x y (+ x w) (+ y h) color)
   (if (abstract? font)
@@ -111,71 +113,14 @@
   (def x :shadow (if (= 0 x) (math/abs x) x)) # no negative 0, messes up rendering!
   (* (math/ceil (/ x n)) n))
 
-###
-### Color Maps
-### mapping real numbers in range [0, 1] to colors
-###
+(defn- color-value
+  "Gray scale valu of a color"
+  [c]
+  (def [r g b a] (g/as-srgb c))
+  (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b)))
 
 (defn- lerp [x y t] (+ (* x t) (* y (- 1 t))))
 (defn- clamp [x a b] (cond (< x a) a (< b x) b x))
-
-(defn color-lerp
-  [a b t]
-  "Linearly interpolate between 2 colors in RGB space. Colors are srgb encoded as 32 bit unsigned integers."
-  (def [ar ag ab aa] (g/as-srgb a))
-  (def [br bg bb ba] (g/as-srgb b))
-  (g/srgb
-    (lerp ar br t)
-    (lerp ag bg t)
-    (lerp ab bb t)
-    (lerp aa ba t)))
-
-(defn color-map
-  "Create a function that linearly interpolates between colors for colormapping."
-  [& colors]
-  (def n-colors (length colors))
-  (def n-1-colors (- n-colors 1))
-  (fn :interp
-    [t]
-    (def t :shadow (clamp t 0 1))
-    (def a-index (math/floor (* t n-1-colors)))
-    (def b-index (+ 1 a-index))
-    (if (> b-index n-1-colors) (break (last colors)))
-    (def t-at-a (/ a-index n-1-colors))
-    (def t-at-b (/ b-index n-1-colors))
-    (def ab-interval (- t-at-b t-at-a))
-    (def u (clamp (/ (- t t-at-a) ab-interval) 0 1))
-    (color-lerp (in colors b-index) (in colors a-index) u)))
-
-(defn invert-color-map
-  "Create an inverted color-map from an existing color map."
-  [mapping]
-  (fn :inverted-map [t] (mapping (- 1 t))))
-
-(def color-maps
-  ```
-  A table containing various default color maps that can be used for rendering heat map data.
-  Each value is a function mapping real numbers in the range [0, 1] to colors represented as 32 bit integers.
-  ```
-  @{
-    :grayscale (color-map g/black g/white)
-    :turbo
-    (color-map
-      0xFF3D1331 0xFF742B39 0xFFA34140 0xFFCA5845 0xFFE56D47 0xFFF88246
-      0xFFFF9641 0xFFF7AC34 0xFFE8BF26 0xFFD2D21A 0xFFBDE018 0xFFA9EC23
-      0xFF90F53A 0xFF74FA58 0xFF5AFE78 0xFF43FE97 0xFF38FAAD 0xFF34F1C3
-      0xFF35E6D6 0xFF39D7E8 0xFF3AC7F4 0xFF36B4FC 0xFF2F9FFE 0xFF2587FC
-      0xFF1A6FF7 0xFF1157EE 0xFF0A44E3 0xFF0533D4 0xFF0325C4 0xFF0118AE
-      0xFF010E97 0xFF03047B)
-    :viridis
-    (color-map
-      0xFF03CDFA 0xFF01C9D3 0xFF01C3AB 0xFF03BD88 0xFF07B665 0xFF0CAF4B
-      0xFF12A837 0xFF199D26 0xFF219318 0xFF288A0F 0xFF2E7F09 0xFF347505
-      0xFF396903 0xFF3D5F02 0xFF415602 0xFF444D02 0xFF454403 0xFF463B03
-      0xFF463504 0xFF462D05 0xFF462705 0xFF462107 0xFF451B08 0xFF441609
-      0xFF41100B 0xFF3D0C0D 0xFF39090E 0xFF34050F 0xFF2D030F 0xFF24010F
-      0xFF1D000F 0xFF16000D)
-    })
 
 (defn- color-hash
   "Given a value, generate a pseudo-random color for visualization"
@@ -327,6 +272,62 @@
   (setdyn *stroke-color* g/black)
   (setdyn *text-color* g/black))
 
+(defn color-lerp
+  [a b t]
+  "Linearly interpolate between 2 colors in RGB space. Colors are srgb encoded as 32 bit unsigned integers."
+  (def [ar ag ab aa] (g/as-srgb a))
+  (def [br bg bb ba] (g/as-srgb b))
+  (g/srgb
+    (lerp ar br t)
+    (lerp ag bg t)
+    (lerp ab bb t)
+    (lerp aa ba t)))
+
+(defn color-map
+  "Create a function that linearly interpolates between colors for colormapping."
+  [& colors]
+  (def n-colors (length colors))
+  (def n-1-colors (- n-colors 1))
+  (fn :interp
+    [t]
+    (def t :shadow (clamp t 0 1))
+    (def a-index (math/floor (* t n-1-colors)))
+    (def b-index (+ 1 a-index))
+    (if (> b-index n-1-colors) (break (last colors)))
+    (def t-at-a (/ a-index n-1-colors))
+    (def t-at-b (/ b-index n-1-colors))
+    (def ab-interval (- t-at-b t-at-a))
+    (def u (clamp (/ (- t t-at-a) ab-interval) 0 1))
+    (color-lerp (in colors b-index) (in colors a-index) u)))
+
+(defn invert-color-map
+  "Create an inverted color-map from an existing color map."
+  [mapping]
+  (fn :inverted-map [t] (mapping (- 1 t))))
+
+(def color-maps
+  ```
+  A table containing various default color maps that can be used for rendering heat map data.
+  Each value is a function mapping real numbers in the range [0, 1] to colors represented as 32 bit integers.
+  ```
+  @{:grayscale (color-map g/black g/white)
+    :turbo
+    (color-map
+      0xFF3D1331 0xFF742B39 0xFFA34140 0xFFCA5845 0xFFE56D47 0xFFF88246
+      0xFFFF9641 0xFFF7AC34 0xFFE8BF26 0xFFD2D21A 0xFFBDE018 0xFFA9EC23
+      0xFF90F53A 0xFF74FA58 0xFF5AFE78 0xFF43FE97 0xFF38FAAD 0xFF34F1C3
+      0xFF35E6D6 0xFF39D7E8 0xFF3AC7F4 0xFF36B4FC 0xFF2F9FFE 0xFF2587FC
+      0xFF1A6FF7 0xFF1157EE 0xFF0A44E3 0xFF0533D4 0xFF0325C4 0xFF0118AE
+      0xFF010E97 0xFF03047B)
+    :viridis # TODO - invert
+    (color-map
+      0xFF16000D 0xFF1D000F 0xFF24010F 0xFF2D030F 0xFF34050F 0xFF39090E
+      0xFF3D0C0D 0xFF41100B 0xFF441609 0xFF451B08 0xFF462107 0xFF462705
+      0xFF462D05 0xFF463504 0xFF463B03 0xFF454403 0xFF444D02 0xFF415602
+      0xFF3D5F02 0xFF396903 0xFF347505 0xFF2E7F09 0xFF288A0F 0xFF219318
+      0xFF199D26 0xFF12A837 0xFF0CAF4B 0xFF07B665 0xFF03BD88 0xFF01C3AB
+      0xFF01C9D3 0xFF03CDFA)})
+
 (defn draw-legend
   ```
   Draw a legend given a set of labels and colors
@@ -336,8 +337,13 @@
   * :background-color - the color of the background of the legend
   * :font - the font to use for legend text
   * :padding - the number of pixels to leave around all drawn content
-  * :color-map - a map of labels to colors
+  * :color-map - a table/struct that maps labels to colors
+  * :legend-map - a table/struct that maps labels to text to draw
+  * :line-color - color to draw frame border
+  * :text-color - color of text
   * :labels - a list of labels to draw in the legend
+  * :view-width - width of the enclosing view in pixels to help hint how to size the legend.
+  * :frame - whether or not to draw a frame around the legend
 
   Return [w h] of the area that was or would be drawn if the legend were to be drawn.
   ```
@@ -350,7 +356,6 @@
   (default legend-map {})
   (default view-width 0)
   (default background-color (dyn *background-color* default-background-color))
-  # TODO pass in configured colors
   (default line-color (dyn *grid-color* default-grid-color))
   (default text-color (dyn *text-color* default-text-color))
   (when canvas
@@ -383,6 +388,101 @@
     (draw-frame canvas 1 1 (- width 2) (- height 2) line-color 2)) # 2 pixel solid frame
   [max-x (+ label-height y)])
 
+(defn- draw-color-map
+  ```
+  Draw a rectable that describes a color-map. Will draw the gradient
+  horizontally by default, but layout can be one of :h, :v, :horizontal, or :vertical.
+  ```
+  [canvas color-map x y w h &opt layout]
+  (default layout :horizontal)
+  (enum layout :horizontal :vertical :h :v)
+  (def horiz (or (= layout :h) (= layout :horizontal)))
+  (if horiz
+    (for xx 0 w
+      (def color (color-map (/ xx (- w 1))))
+      (g/fill-rect canvas (+ x xx) y 1 h color))
+    (for yy1 0 h
+      (def yy (- h yy1 1)) # flip
+      (def color (color-map (/ yy1 (- h 1))))
+      (g/fill-rect canvas x (+ y yy) w 1 color)))
+  canvas)
+
+(defn draw-heat-legend
+  ```
+  Draw a legend that describes a heat-map color range.
+
+  `canvas` can be either nil to skip drawing or a gfx2d/Image.
+
+  * :swatch-width - width of the color gradient in pixels
+  * :swatch-height - height of the color gradient in pixels
+  * :background-color - the color of the background of the legend
+  * :font - the font to use for legend text
+  * :padding - the number of pixels to leave around all drawn content
+  * :color-map - a table/struct that maps labels to colors
+  * :line-color - color to draw frame border
+  * :text-color - color of text
+  * :labels - a list of labels to draw in the legend
+  * :frame - whether or not to draw a frame around the legend
+
+  Return [w h] of the area that was or would be drawn if the legend were to be drawn.
+  ```
+  [canvas &named
+   swatch-width swatch-height
+   background-color font padding color-map
+   frame line-color text-color layout labels]
+  (default font (dyn *font* default-font))
+  (default padding (dyn *padding* default-padding))
+  (default background-color (dyn *background-color* default-background-color))
+  (default line-color (dyn *grid-color* default-grid-color))
+  (default text-color (dyn *text-color* default-text-color))
+  (default labels [])
+
+  (default layout :horizontal)
+  (enum layout :horizontal :vertical :v :h)
+  (def h (or (= layout :h) (= layout :horizontal)))
+  (def font-scale 1)
+
+  # Measure extra padding needed by labels
+  (var [lw lh] [0 0])
+  (each l labels
+    (def [tw th] (text-measure l font font-scale))
+    (set lw (max lw tw))
+    (set lh (max lh th)))
+  (def h-padding (+ padding (div lw 2)))
+  (def v-padding (+ padding (div lh 2)))
+
+  # Default length should be enough to fit all of the labels along the long axis
+  (def default-len (math/ceil (max 256 (* (length labels) (+ 4 (max lw lh))))))
+  (default swatch-width (if h default-len 64))
+  (default swatch-height (if h 64 default-len))
+
+  (when canvas
+    (def {:width width :height height} (g/unpack canvas))
+    (when frame (g/fill-rect canvas 0 0 width height background-color)))
+
+  (when canvas
+    (draw-color-map canvas color-map (if h h-padding padding) (if h padding v-padding) swatch-width swatch-height layout))
+
+  # Draw metric labels
+  (when canvas
+    (def llen (length labels))
+    (for i 0 llen
+      (def l (get labels i))
+      (def t (/ i (dec llen)))
+      (def [tw th] (text-measure l font font-scale))
+      (if h
+        (let [x (+ h-padding (math/floor (* t swatch-width)))]
+          (text-draw canvas (- x (div tw 2)) (+ padding swatch-height padding) l text-color font font-scale 0))
+        (let [y (+ v-padding (math/floor (* (- 1 t) swatch-height)))]
+          (text-draw canvas (+ padding swatch-width padding) (- y (div th 2)) l text-color font font-scale 0)))))
+
+  (when (and canvas frame)
+    (def {:width width :height height} (g/unpack canvas))
+    (draw-frame canvas 1 1 (- width 2) (- height 2) line-color 2)) # 2 pixel solid frame
+
+  [(+ h-padding h-padding (if (and (not h) (next labels)) h-padding 0) swatch-width)
+   (+ v-padding v-padding (if (and h (next labels)) v-padding 0) swatch-height)])
+
 (defn draw-axes
   ```
   Draw the axis for the chart. Also return a function that can be used
@@ -392,7 +492,7 @@
   * :x-label - optional label for the x axis
   * :y-label - optional label for the y axis
   * :padding - the number of pixels to leave around all drawn content
-  * :inner-padding - how many pixels to add between the axes frame and the internal metric space. Defaults to 8.
+  * :inner-padding - how many pixels to add between the axes frame and the internal graphing area. Defaults to 8.
   * :font - the font to use for axis text
   * :{x,y}-{min,max} - The bounds for coordinate system to draw
   * :grid - Style for drawing grid-lines. Can be nil (none), :none, :solid, or :stipple
@@ -502,6 +602,8 @@
     [metric-x metric-y]
     [(+ offset-x (* scale-x metric-x))
      (+ offset-y (* scale-y metric-y))])
+
+  # TODO - replace tick mark draw calls to g/plot with g/fill-rect to allow for thicker ticks
 
   # Draw Y axis
   (each metric-y yticks
@@ -937,11 +1039,6 @@
 ### provide a function that maps input row and column to a color or value. Such
 ### a function is usually a oneliner given most reasonable data structures.
 
-(defn- color-value
-  [c]
-  (def [r g b a] (g/as-srgb c))
-  (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b)))
-
 (defn plot-heat-map
   ```
   Render a heat map on a set of axis. Will nicely fill the passed in image, so use a subview to draw to a section of the chart.
@@ -998,7 +1095,7 @@
       (def [w h] (text-measure text font 1 0))
       (def text-x (math/floor (- (mean [pixel-x next-pixel-x]) (/ w 2))))
       (def text-y (math/floor (- (mean [pixel-y next-pixel-y]) (/ h 2))))
-      (def tcolor (or false (if (< 0.6 (color-value color)) g/black g/white))) # black or white, maximizing contrast
+      (def tcolor (or cell-text-color (if (< 0.6 (color-value color)) g/black g/white))) # black or white, maximizing contrast
       (text-draw canvas text-x text-y text tcolor font 1 0)))
 
   canvas)
@@ -1016,12 +1113,12 @@
   * :cell-text-fn - Function `(cell-text-fn x y)` that returns an optional string to render for each cell. If the function evaluates to nil, no text will be drawn for that cell.
   * :num-columns - Number of columns to draw.
   * :num-rows - Number of rows to draw.
+  * :color-map - for legend
   * :save-as - optional path to save the chart
 
   Axes Styling
   * :grid - how to draw grid lines. One of :none, :solid, or :stipple
   * :x-ticks - manually set the tick marks on the X axis instead of auto-detecting them
-  * :inner-padding - the number of pixels of white space between x-min and the x-axes as well as y-min and the y-axes.
   * :x-label - optional label for the x axis
   * :y-label - optional label for the y axis
   * :x-suffix - add a string suffix to each tick label on the x-axis
@@ -1041,27 +1138,33 @@
   * :text-color - color of axes and title text
   * :padding - Number of pixels to separate various elements of the chart
   * :background-color - chart background color
+  * :legend-width - width of color map gradient in the legend in pixels
+  * :legend-height - height of the color map gradient in the legend in pixels
 
   Returns a new canvas.
   ```
   [&named
    width height
+   data xs ys
    color-fn cell-text-fn
    num-columns num-rows
    font cell-font
+   color-map
    background-color
    text-color cell-text-color
    x-min x-max y-min y-max
    format-x format-y
-   padding inner-padding
+   padding
    title
    grid
    box-gap
+   labels
    legend
    x-label y-label
    x-suffix x-prefix y-suffix y-prefix
    x-ticks x-minor-ticks y-minor-ticks tick-length
    x-labels-vertical
+   legend-width legend-height
    save-as]
 
   # Check parameters and set defaults.
@@ -1070,11 +1173,25 @@
   (default padding (dyn *padding* default-padding))
   (default background-color (dyn *background-color* default-background-color))
   (default text-color (dyn *text-color* default-text-color))
-  (default cell-text-color text-color)
   (default font (dyn *font* default-font))
   (default legend :none)
   (default grid :none)
   (default tick-length 0)
+
+  # Allow a few ways to populate the heat-map with data
+  (def color-map :shadow (if (keyword? color-map) (get color-maps color-map) color-map))
+  (default data [[]])
+  (default xs (or (and num-columns (range num-columns)) (sort (keys data))))
+  (default ys (range (or num-rows (length (get data (first xs))))))
+  (defn get-point [x y]
+    (def xcol (get data (get xs x)))
+    (get xcol y))
+  (default color-fn (fn [x y] (color-map (get-point x y))))
+  (default format-x (if num-columns nil (fn [x] (string (get xs x)))))
+  (def num-columns (length xs))
+  (def num-rows (length ys))
+
+  (enum legend :none :top :top-left :top-right :bottom-left :bottom-right :left :right :top :bottom)
 
   # Get canvas
   (def canvas (g/blank width height 4))
@@ -1088,13 +1205,42 @@
     (set title-padding (+ padding title-height))
     (text-draw canvas (math/round (* 0.5 (- width title-width))) padding title text-color font title-scale))
 
-  # TODO - legend?
+  # Add legend on outside of chart
+  (def legend-padding (max 4 (div padding 4)))
+  (var [right-pad left-pad top-pad bottom-pad] [0 0 0 0])
+  (when (index-of legend [:top :bottom :left :right])
+    (def layout (if (index-of legend [:top :bottom]) :h :v))
+    (def [lw lh] (draw-heat-legend nil :font font :padding legend-padding :color-map color-map :labels labels :layout layout
+                                   :swatch-width legend-width :swatch-height legend-height))
+    (def legend-view (g/viewport canvas
+                                 (case legend
+                                   :top (div (- width lw) 2)
+                                   :bottom (div (- width lw) 2)
+                                   :left padding
+                                   :right (- width padding lw))
+                                 (case legend
+                                   :top title-padding
+                                   :bottom (- height padding lh)
+                                   :left (div (- height lh (div title-padding -2)) 2)
+                                   :right (div (- height lh (div title-padding -2)) 2))
+                                 lw lh true))
+    (case legend
+      :left (set left-pad (+ lw padding))
+      :right (set right-pad (+ lw padding))
+      :top (set top-pad (+ lh padding))
+      :bottom (set bottom-pad (+ lh padding)))
+    (draw-heat-legend legend-view :font font :padding legend-padding :color-map color-map :labels labels :layout layout
+                      :swatch-width legend-width :swatch-height legend-height
+                      :text-color text-color))
 
-  # Crop title section out of place where axis and charting will draw
-  (def view (g/viewport canvas 0 title-padding width (- height title-padding)))
+  # Crop title section and legend padding out of place where axis and charting will draw
+  (def view (g/viewport canvas
+                        left-pad
+                        (+ top-pad title-padding)
+                        (- width right-pad left-pad)
+                        (- height title-padding top-pad bottom-pad)))
 
   # Draw axes
-  # TODO the default axis for heat maps should be a little different than for line charts.
   (def {:width view-width :height view-height} (g/unpack view))
   (default x-min -0.5)
   (default y-min -0.5)
@@ -1102,7 +1248,7 @@
   (default y-max (+ -0.5 num-rows))
   (def [graph-view to-pixel-space _to-metric-space]
     (draw-axes view
-               :padding padding :inner-padding inner-padding
+               :padding padding :inner-padding 0
                :font font
                :grid grid
                :min-x-spacing 1 :min-y-spacing 1
@@ -1128,7 +1274,22 @@
     :cell-text-color cell-text-color
     :box-gap box-gap)
 
-  # TODO - legend?
+  # Draw internal legend if selected
+  (when (index-of legend [:top-left :top-right :bottom-left :bottom-right])
+    (def legend-layout :v)
+    (def [lw lh] (draw-heat-legend nil :font font :padding legend-padding :color-map color-map :labels labels
+                                   :layout legend-layout :swatch-width legend-width :swatch-height legend-height))
+    (def {:width gw :height gh} (g/unpack graph-view))
+    (def legend-view
+      (case legend
+        :top-left (g/viewport graph-view padding padding lw lh true)
+        :top-right (g/viewport graph-view (- gw lw padding) padding lw lh true)
+        :bottom-left (g/viewport graph-view padding (- gh lh padding) lw lh true)
+        :bottom-right (g/viewport graph-view (- gw lw padding) (- gh lh padding) lw lh true)))
+    (g/fill-rect legend-view 0 0 lw lh background-color)
+    (draw-heat-legend legend-view :font font :padding legend-padding :color-map color-map
+                      :swatch-width legend-width :swatch-height legend-height
+                      :text-color text-color :labels labels :layout legend-layout :frame true))
 
   # Save to file
   (when save-as
