@@ -46,7 +46,7 @@
 (defdyn *background-color* "Default background color for chart rendering")
 (defdyn *grid-color* "Default color for grid lines")
 (defdyn *padding* "Default padding for charts")
-(defdyn *color-seed* "Random seed to use when picking psuedo-random colors for charts")
+(defdyn *color-seed* "Random seed to use when picking pseudo-random colors for charts")
 
 # Default defaults
 (def- default-font :olive)
@@ -405,7 +405,7 @@
 
 (defn- draw-color-map
   ```
-  Draw a rectable that describes a color-map. Will draw the gradient
+  Draw a rectangle that describes a color-map. Will draw the gradient
   horizontally by default, but layout can be one of :h, :v, :horizontal, or :vertical.
   ```
   [canvas color-map x y w h &opt layout]
@@ -1070,7 +1070,7 @@
   * :num-rows - Number of rows to draw.
   * :box-gap - Number of pixels between boxes on the heat map
   * :font - font used to draw optional text in cells
-  * :cell-text-color - color of text, defaults to black
+  * :cell-text-color - color of text, defaults to black or white depending on the cell color
 
   Returns the modified original canvas.
   ```
@@ -1091,7 +1091,6 @@
   (def {:width canvas-width :height canvas-height} (g/unpack canvas))
   (default box-gap 0)
   (default font (dyn *font* default-font))
-  (default cell-text-color nil) # (dyn *text-color* default-text-color))
 
   # Calculate box sizes - not always integers!
   (def box-width (- (/ (- canvas-width box-gap) num-columns) box-gap))
@@ -1109,7 +1108,6 @@
     (g/fill-rect canvas pixel-x pixel-y (- next-pixel-x pixel-x) (- next-pixel-y pixel-y) color)
 
     # Per cell text
-    # TODO - get text color by inverting cell color?
     (when-let [text (and cell-text-fn (cell-text-fn x y))]
       (def [w h] (text-measure text font 1 0))
       (def text-x (math/floor (- (mean [pixel-x next-pixel-x]) (/ w 2))))
@@ -1140,7 +1138,6 @@
   Data Frame Input
   * :data - a dataframe table that contains a grid of cell
   * :data-scale - map numeric data to a [0.0, 1.0] range with a scale factor or function. Is the constant 1.0 by default.
-    and maximum values in data to 0 and 1 respectively.
   * :xs - a list of x columns - these are keys in `data`
   * :ys - (optional) keys into each column - by default this is just (range num-rows-in-data).
 
