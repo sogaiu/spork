@@ -167,33 +167,6 @@
     (set min-y (min min-y (extreme < (filter identity (get data c [math/inf])))))
     (set max-y (max max-y (extreme > (filter identity (get data c [math/-inf]))))))
 
-  # Now possibly expand bounds for nice axis ticks in the same way as `guess-axis-ticks`.
-  # e.g. [1-99] -> [0-100]
-  # Guess delta - making some assumptions is ok since we don't know exact measurements until axes layout and this is just to auto-fit.
-  # Better to over-estimate deltas (metric tick spacing) than under-estimate here.
-  # Full control is still available to the library user via x-min, x-max, y-min, and y-max.
-  (def max-x-ticks (max 1 (math/floor (/ width min-spacing))))
-  (def max-y-ticks (max 1 (math/floor (/ height min-spacing))))
-  (def x-delta (/ (- max-x min-x) max-x-ticks))
-  (def y-delta (/ (- max-y min-y) max-y-ticks))
-  (def fudge-factor 1)
-
-  # If minimums are a little over a nice number, set them to the nice number
-  (def fudge-min-x (floorn x-delta min-x))
-  (def fudge-min-y (floorn y-delta min-y))
-  (if (< (- min-x fudge-min-x) (* fudge-factor x-delta))
-    (set min-x fudge-min-x))
-  (if (< (- min-y fudge-min-y) (* fudge-factor y-delta))
-    (set min-y fudge-min-y))
-
-  # If the maximums are a little under a nice number, set them to the nice number
-  (def fudge-max-x (ceiln x-delta max-x))
-  (def fudge-max-y (ceiln y-delta max-y))
-  (if (< (- fudge-max-x max-x) (* fudge-factor x-delta))
-    (set max-x fudge-max-x))
-  (if (< (- fudge-max-y max-y) (* fudge-factor y-delta))
-    (set max-y fudge-max-y))
-
   [(or override-min-x min-x) (or override-max-x max-x)
    (or override-min-y min-y) (or override-max-y max-y)])
 
