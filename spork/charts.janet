@@ -35,6 +35,7 @@
 ### [ ] - fill between chart
 ### [x] - handle nils in y-columns for sparse data
 ### [x] - easier custom chart annotations in the metric space (horizontal lines, vertical lines, etc.)
+### [ ] - captions and sub-titles
 
 (import spork/gfx2d :as g)
 
@@ -311,9 +312,9 @@
   Each value is a function mapping real numbers in the range [0, 1] to colors represented as 32 bit integers.
   ```
   @{:grayscale (color-map g/black g/white)
-    :bluescale (color-map g/blue g/white)
-    :redscale (color-map g/red g/white)
-    :greenscale (color-map g/green g/white)
+    :bluescale (color-map 0xFF330000 g/white)
+    :redscale (color-map 0xFF000033 g/white)
+    :greenscale (color-map 0xFF003300 g/white)
     :bluescale-black (color-map g/black g/blue)
     :redscale-black (color-map g/black g/red)
     :greenscale-black (color-map g/black g/green)
@@ -325,6 +326,14 @@
       0xFF35E6D6 0xFF39D7E8 0xFF3AC7F4 0xFF36B4FC 0xFF2F9FFE 0xFF2587FC
       0xFF1A6FF7 0xFF1157EE 0xFF0A44E3 0xFF0533D4 0xFF0325C4 0xFF0118AE
       0xFF010E97 0xFF03047B)
+    :magma
+    (color-map
+      0xFF030000 0xFF0F0202 0xFF1F0709 0xFF310C11 0xFF41101A 0xFF551125
+      0xFF671032 0xFF720F3E 0xFF79104B 0xFF7E1558 0xFF7F1963 0xFF811F71
+      0xFF81247E 0xFF812889 0xFF802C95 0xFF7E30A3 0xFF7B34AE 0xFF7738BB
+      0xFF723DC8 0xFF6D42D3 0xFF674ADE 0xFF6154E8 0xFF5D60F0 0xFF5B6EF6
+      0xFF5D7DF9 0xFF628AFB 0xFF6999FD 0xFF73A8FE 0xFF7CB5FE 0xFF88C4FE
+      0xFF95D2FD 0xFFA1DFFD)
     :viridis
     (color-map
       0xFF16000D 0xFF1D000F 0xFF24010F 0xFF2D030F 0xFF34050F 0xFF39090E
@@ -1153,7 +1162,8 @@
   * :box-gap - Number of pixels between boxes on the heat map. Default is 0.
   * :cell-font - font used to draw optional text in cells
   * :cell-text-color - color of text, defaults to black or white, depending on cell color
-  * :font - font used to draw title and axes
+  * :font - font used to draw axes
+  * :title-font - font used to draw title. Defaults to font.
   * :text-color - color of axes and title text
   * :padding - Number of pixels to separate various elements of the chart
   * :background-color - chart background color
@@ -1169,7 +1179,7 @@
    data data-scale xs ys
    color-fn cell-text-fn
    num-columns num-rows
-   font cell-font
+   font title-font cell-font
    color-map
    background-color
    text-color cell-text-color
@@ -1193,6 +1203,7 @@
   (default background-color (dyn *background-color* default-background-color))
   (default text-color (dyn *text-color* default-text-color))
   (default font (dyn *font* default-font))
+  (default title-font font)
   (default legend :none)
   (default tick-length 0)
 
@@ -1221,9 +1232,9 @@
   (var title-padding 0)
   (when title
     (def title-scale 2)
-    (def [title-width title-height] (text-measure title font title-scale))
+    (def [title-width title-height] (text-measure title title-font title-scale))
     (set title-padding (+ padding title-height))
-    (text-draw canvas (math/round (* 0.5 (- width title-width))) padding title text-color font title-scale))
+    (text-draw canvas (math/round (* 0.5 (- width title-width))) padding title text-color title-font title-scale))
 
   # Add legend on outside of chart
   (def legend-padding (max 4 (div padding 4)))

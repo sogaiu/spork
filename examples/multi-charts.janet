@@ -21,11 +21,11 @@
     :legend-labels (seq [x :range [0 5]] (case x 0 "" 4 "" (string/format "%.2f" (/ x 4))))
     :font font
     :legend-width 20
-    :title (string/ascii-upper color-map)
+    :title (string ":" color-map)
     :color-map color-map))
 
 # Make a grid of charts
-(def the-charts (map make-a-chart [:grayscale :turbo :viridis :bluescale-black]))
+(def the-charts (map make-a-chart [:grayscale :turbo :viridis :magma]))
 (def outer-canvas (gfx2d/blank 1000 1100 4))
 (gfx2d/fill-rect outer-canvas 0 0 2000 2000 gfx2d/white)
 (def title "spork/charts color maps")
