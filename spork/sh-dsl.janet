@@ -8,7 +8,7 @@
 (defdyn *pipefail* "When set, the return value of a pipeline is the last non-zero exit code instead of the default right-most exit code")
 (defdyn *errexit* "When set, error immediately if pipelines run with `$`, `$<`, or `$<_` return with a non-zero exit code.")
 
-(def- parse-env-set-peg (peg/compile '(* '(to "=") "=" ':S*)))
+(def- parse-env-set-peg :flycheck (peg/compile '(* '(to "=") "=" ':S*)))
 
 # Re-implements ev/go-gather
 

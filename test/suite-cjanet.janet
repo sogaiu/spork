@@ -9,6 +9,10 @@
 ### JIT funcitonality
 ###
 
+# For flychecking
+(def add-three nil)
+(def add-two nil)
+
 (begin-jit)
 
 (typedef Bill
@@ -39,7 +43,9 @@
 
 (end-jit)
 
-(assert (= 6 (add-three 1 2 3)) "add-three")
-(assert (= 20 (add-two 15 5)) "add-two")
+(defn dotest []
+  (assert (= 6 (add-three 1 2 3)) "add-three")
+  (assert (= 20 (add-two 15 5)) "add-two"))
+(dotest)
 
 (end-suite)

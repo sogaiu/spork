@@ -6,7 +6,7 @@
 (var start-time 0)
 (var skip-count 0)
 (var skip-n 0)
-(def- is-verbose (delay (os/getenv "VERBOSE")))
+(def- is-verbose :flycheck (delay (os/getenv "VERBOSE")))
 
 (defn- assert-no-tail
   "Overrides the default assert with some nice error handling."
