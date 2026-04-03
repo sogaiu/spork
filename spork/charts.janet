@@ -132,6 +132,15 @@
          (+ 0.2 (* 0.6 (math/rng-uniform rng)))
          (+ 0.2 (* 0.6 (math/rng-uniform rng)))))
 
+(defn- canvas-and-dimensions
+  "Get a canvas and dimensions given canvas, width and height, where canvas or width and height can be nil."
+  [canvas width height]
+  (default canvas (g/blank (or width default-width) (or height default-height) 4))
+  (def {:width w :height h} (g/unpack canvas))
+  (if width (assert (= w width) "width does not match provided canvas width"))
+  (if height (assert (= h height) "height does not match provided canvas height"))
+  [canvas w h])
+
 ###
 ### Graph Axes Calculation and rendering
 ###
@@ -284,7 +293,7 @@
     (lerp ab bb t)
     (lerp aa ba t)))
 
-(defn color-map
+(defn make-color-map
   "Create a function that linearly interpolates between colors for colormapping."
   [& colors]
   (def n-colors (length colors))
@@ -311,15 +320,15 @@
   A table containing various default color maps that can be used for rendering heat map data.
   Each value is a function mapping real numbers in the range [0, 1] to colors represented as 32 bit integers.
   ```
-  @{:grayscale (color-map g/black g/white)
-    :bluescale (color-map 0xFF330000 g/white)
-    :redscale (color-map 0xFF000033 g/white)
-    :greenscale (color-map 0xFF003300 g/white)
-    :bluescale-black (color-map g/black g/blue)
-    :redscale-black (color-map g/black g/red)
-    :greenscale-black (color-map g/black g/green)
+  @{:grayscale (make-color-map g/black g/white)
+    :bluescale (make-color-map 0xFF330000 g/white)
+    :redscale (make-color-map 0xFF000033 g/white)
+    :greenscale (make-color-map 0xFF003300 g/white)
+    :bluescale-black (make-color-map g/black g/blue)
+    :redscale-black (make-color-map g/black g/red)
+    :greenscale-black (make-color-map g/black g/green)
     :turbo
-    (color-map
+    (make-color-map
       0xFF3D1331 0xFF742B39 0xFFA34140 0xFFCA5845 0xFFE56D47 0xFFF88246
       0xFFFF9641 0xFFF7AC34 0xFFE8BF26 0xFFD2D21A 0xFFBDE018 0xFFA9EC23
       0xFF90F53A 0xFF74FA58 0xFF5AFE78 0xFF43FE97 0xFF38FAAD 0xFF34F1C3
@@ -327,7 +336,7 @@
       0xFF1A6FF7 0xFF1157EE 0xFF0A44E3 0xFF0533D4 0xFF0325C4 0xFF0118AE
       0xFF010E97 0xFF03047B)
     :magma
-    (color-map
+    (make-color-map
       0xFF030000 0xFF0F0202 0xFF1F0709 0xFF310C11 0xFF41101A 0xFF551125
       0xFF671032 0xFF720F3E 0xFF79104B 0xFF7E1558 0xFF7F1963 0xFF811F71
       0xFF81247E 0xFF812889 0xFF802C95 0xFF7E30A3 0xFF7B34AE 0xFF7738BB
@@ -335,13 +344,24 @@
       0xFF5D7DF9 0xFF628AFB 0xFF6999FD 0xFF73A8FE 0xFF7CB5FE 0xFF88C4FE
       0xFF95D2FD 0xFFA1DFFD)
     :viridis
-    (color-map
+    (make-color-map
       0xFF16000D 0xFF1D000F 0xFF24010F 0xFF2D030F 0xFF34050F 0xFF39090E
       0xFF3D0C0D 0xFF41100B 0xFF441609 0xFF451B08 0xFF462107 0xFF462705
       0xFF462D05 0xFF463504 0xFF463B03 0xFF454403 0xFF444D02 0xFF415602
       0xFF3D5F02 0xFF396903 0xFF347505 0xFF2E7F09 0xFF288A0F 0xFF219318
       0xFF199D26 0xFF12A837 0xFF0CAF4B 0xFF07B665 0xFF03BD88 0xFF01C3AB
       0xFF01C9D3 0xFF03CDFA)})
+
+(defn to-color-map
+  "Map a keyword, function, array, or dictionary to a function that maps values to colors."
+  [cmap]
+  (cond
+    (function? cmap) cmap
+    (indexed? cmap) (make-color-map ;cmap)
+    (keyword? cmap) (assert (get color-maps cmap) "unknown color map")
+    (number? cmap) (fn [&] :constant-color-map cmap)
+    (dictionary? cmap) (fn [x] :dictionary-color-map (get cmap x g/magenta))
+    (errorf "unknown color map %v - expect function, array, tuple, table, struct, number, table, or keyword, got %v" cmap)))
 
 (defn draw-legend
   ```
@@ -367,7 +387,7 @@
    frame color-seed legend-map line-color text-color]
   (default font (dyn *font* default-font))
   (default padding (dyn *padding* default-padding))
-  (default color-map {})
+  (default color-map color-hash)
   (default legend-map {})
   (default view-width 0)
   (default background-color (dyn *background-color* default-background-color))
@@ -375,7 +395,7 @@
   (default text-color (dyn *text-color* default-text-color))
   (when canvas
     (def {:width width :height height} (g/unpack canvas))
-    (when frame (g/fill-rect canvas 0 0 width height background-color)))
+    (when (and (not= :none background-color) frame) (g/fill-rect canvas 0 0 width height background-color)))
   (def label-height (let [[_ h] (text-measure "Mg" font 1)] h))
   (def swatch-size label-height)
   (def spacing (+ label-height padding 1))
@@ -384,6 +404,7 @@
   (var y padding)
   (var x padding)
   (var max-x 0)
+  (def cmap (to-color-map color-map))
   (each i labels
     (def lab (string (get legend-map i i)))
     (def [text-width _] (text-measure lab font 1))
@@ -392,7 +413,7 @@
       (unless (= i (first labels)) (+= y spacing)) # don't skip first line
       (set x padding))
     (when canvas
-      (def color (get color-map i (color-hash i)))
+      (def color (cmap i))
       (g/fill-rect canvas x y swatch-size swatch-size color)
       (text-draw canvas (+ x swatch-size padding) (+ small-spacing y) lab text-color font 1))
     (+= x (+ item-width padding))
@@ -473,10 +494,10 @@
 
   (when canvas
     (def {:width width :height height} (g/unpack canvas))
-    (when frame (g/fill-rect canvas 0 0 width height background-color)))
+    (when (and (not= :none background-color) frame) (g/fill-rect canvas 0 0 width height background-color)))
 
   (when canvas
-    (draw-color-map canvas color-map (if h h-padding padding) (if h padding v-padding) swatch-width swatch-height layout))
+    (draw-color-map canvas (to-color-map color-map) (if h h-padding padding) (if h padding v-padding) swatch-width swatch-height layout))
 
   # Draw metric labels
   (when canvas
@@ -504,6 +525,9 @@
   to convert a coordinate in the metric space to the screen space. Most parameters
   are optional with sane defaults, but canvas, x-min, x-max, y-min, y-max are all required.
 
+  * :canvas - gfx2d/Image to draw the axes on
+  *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
+  *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :x-label - optional label for the x axis
   * :y-label - optional label for the y axis
   * :padding - the number of pixels to leave around all drawn content
@@ -525,19 +549,22 @@
   * :min-y-spacing - When guessing y ticks, allow setting a lower limit to the metric spacing between ticks
   * :tick-length - how many pixels long to make major tick marks (minor tick marks are 1/2 major tick marks)
 
-  Returns a tuple [view:gfx2d/Image to-pixel-space:fn to-metric-space:fn]
+  Returns a 4-tuple [view:gfx2d/Image to-pixel-space:fn to-metric-space:fn outer-canvas:gfx2d/Image]
 
   * `view` is an image that can be used to draw inside the chart, clipped so you don't overwrite that axes.
   * `(to-pixel-space metric-x metric-y)` converts metric space coordinates to pixel space for plotting on `view`.
   * `(to-metric-space pixel-x pixel-y)` converts pixel coordinates to the metric space.
+  * `outer-canvas` is the input canvas or newly create enclosing image for the entire figure.
   ```
-  [canvas &named padding inner-padding font
+  [&named canvas width height
+   padding inner-padding font
    x-min x-max y-min y-max min-x-spacing min-y-spacing
    grid format-x format-y
    x-label y-label tick-length
    x-suffix x-prefix y-suffix y-prefix
    x-ticks x-minor-ticks y-minor-ticks x-labels-vertical]
 
+  (def [canvas width height] :shadow (canvas-and-dimensions canvas width height))
   (default padding (dyn *padding* default-padding))
   (default font (dyn *font* default-font))
   (default grid :none)
@@ -563,11 +590,11 @@
   (def font-height (let [[_ h] (text-measure "Mg" font 1)] h))
   (default inner-padding 8)
   (def font-half-height (div font-height 2))
-  (default tick-length 16)
+  (default tick-length (div font-height 3))
   (def has-grid (not= grid :none))
   (def stipple-cycle (if (= grid :stipple) 8 0))
   (def stipple-on 4)
-  (def tick-height (if has-grid 10 (+ tick-length 6)))
+  (def tick-height (if has-grid 10 (+ tick-length 3)))
   (def tick-trim (if has-grid 0 (- tick-height tick-length)))
 
   # Initial guess for x label width
@@ -629,7 +656,7 @@
     (def rounded-pixel-y (math/round pixel-y))
     (def text (yformat metric-y))
     (def [text-width] (text-measure text font 1))
-    (text-draw canvas (- outer-left-padding text-width 3) (- rounded-pixel-y font-half-height) text line-color font 1)
+    (text-draw canvas (- outer-left-padding text-width) (- rounded-pixel-y font-half-height) text line-color font 1)
     (if has-grid
       (g/plot canvas left-padding rounded-pixel-y (- width right-padding) rounded-pixel-y grid-color stipple-cycle stipple-on)
       (g/plot canvas (+ tick-trim outer-left-padding) rounded-pixel-y (+ outer-left-padding tick-height) rounded-pixel-y grid-color)))
@@ -645,8 +672,8 @@
     (def text (xformat metric-x))
     (def [text-width text-height] (text-measure text font 1))
     (if x-labels-vertical
-      (text-draw canvas (- rounded-pixel-x -1 (* text-height 0.5)) (- height outer-bottom-padding -3 (- text-width)) text line-color font 1 1)
-      (text-draw canvas (- rounded-pixel-x -1 (* text-width 0.5)) (- height outer-bottom-padding -3) text line-color font 1))
+      (text-draw canvas (- rounded-pixel-x (* text-height 0.5)) (- height outer-bottom-padding (- text-width)) text line-color font 1 1)
+      (text-draw canvas (- rounded-pixel-x (* text-width 0.5)) (- height outer-bottom-padding) text line-color font 1))
     (if has-grid
       (g/plot canvas rounded-pixel-x top-padding rounded-pixel-x (- height bottom-padding) grid-color stipple-cycle stipple-on)
       (g/plot canvas rounded-pixel-x (- height outer-bottom-padding tick-trim) rounded-pixel-x (- height outer-bottom-padding tick-height) grid-color)))
@@ -707,7 +734,7 @@
     [(/ (- pixel-x frame-offset-x) frame-scale-x)
      (/ (- pixel-y frame-offset-y) frame-scale-y)])
 
-  [view view-convert view-unconvert])
+  [view view-convert view-unconvert canvas])
 
 ###
 ### Line Graphs
@@ -718,6 +745,8 @@
   Plot a line graph or scatter graph on a canvas. This function does not add a set of axis, title, or chart legend, it will only plot the graph lines and points from data.
 
   * :canvas - a gfx2d/Image to draw on
+  *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
+  *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :to-pixel-space - optional function (f x y) -> [pixel-x pixel-y]. Used to convert the metric space to pixel space when plotting points.
   * :data - a data frame to use for x and y data
   * :x-column - the name of the data frame column to use for the x axis
@@ -731,9 +760,11 @@
   * :bar-padding - space between bars in bar-charts
   * :stroke-thickness - thickness in pixels of the stroke of the graph when :line-type = :stroke
   * :x-colors - for bar and scatter plots, optionally set per-point/per-bar colors with an function (f x y index) called on each point.
+
+  Returns the modified canvas image.
   ```
   [&named
-   canvas
+   canvas width height
    data
    to-pixel-space
    line-style
@@ -748,15 +779,16 @@
    super-sample
    color-map]
 
-  (def {:width canvas-width :height canvas-height} (g/unpack canvas))
+  (def [canvas canvas-width canvas-height] :shadow (canvas-and-dimensions canvas width height))
   (default to-pixel-space (fn :convert [x y] [x y]))
-  (default color-map {})
+  (default color-map color-hash)
   (default line-style-per-column {})
   (default line-style :plot)
   (default bar-padding 4)
   (default point-radius 3)
   (default stroke-thickness 1.5)
   (default super-sample 1)
+  (def cmap (to-color-map color-map))
 
   # Super sampling!
   # Super sampling does not work well with pixel-based line styles, like :plot, :stipple
@@ -771,7 +803,7 @@
                      :y-column y-column
                      :circle-points circle-points
                      :bar-padding (* super-sample bar-padding)
-                     :color-map color-map
+                     :color-map cmap
                      :super-sample nil
                      :stroke-thickness (* super-sample stroke-thickness)
                      :point-radius (* super-sample point-radius)
@@ -790,7 +822,7 @@
   (def xs (get data x-column))
   (assert (indexed? xs))
   (each ycol y-columns
-    (def graph-color (get color-map ycol (color-hash ycol)))
+    (def graph-color (cmap ycol))
     (default x-colors (fn :default-x-colors [&] graph-color))
     (def ys (get data ycol))
 
@@ -880,8 +912,9 @@
   Render a line chart. Returns a gfx2d/Image which can be further manipulated with the spork/gfx2d module.
 
   Basic Parameters
-  * :width - canvas width
-  * :height - canvas height
+  * :canvas - a gfx2d/Image to draw on
+  *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
+  *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :data - a data frame to use for data
   * :title - an optional title to add to the rendered image
   * :font - font used to draw text, including title, legend, and axes labels
@@ -925,7 +958,7 @@
   * :y-max - maximum y coordinate on chart
   ```
   [&named
-   width height data
+   canvas width height data
    font background-color text-color color-map
    point-radius
    x-min x-max y-min y-max
@@ -944,13 +977,13 @@
    x-labels-vertical]
 
   # Check parameters and set defaults.
-  (assert x-column)
-  (assert y-column)
-  (default width default-width)
-  (default height default-height)
+  (assert data)
+  (def skeys (sort (keys data)))
+  (default x-column (first skeys))
+  (default y-column (drop 1 skeys))
   (default padding (dyn *padding* default-padding))
   (default point-radius 3)
-  (default color-map {})
+  (default color-map color-hash)
   (default background-color (dyn *background-color* default-background-color))
   (default text-color (dyn *text-color* default-text-color))
   (default font (dyn *font* default-font))
@@ -968,8 +1001,9 @@
   (def y-columns (if (indexed? y-column) y-column [y-column]))
 
   # Get canvas
-  (def canvas (g/blank width height 4))
-  (g/fill-rect canvas 0 0 width height background-color)
+  (def [canvas width height] :shadow (canvas-and-dimensions canvas width height))
+  (when (not= :none background-color)
+    (g/fill-rect canvas 0 0 width height background-color))
 
   # Render title section, and update view to cut out title
   (var title-padding 0)
@@ -1001,7 +1035,7 @@
                              view-width view-height 20
                              x-min x-max y-min y-max)))
   (def [graph-view to-pixel-space _to-metric-space]
-    (draw-axes view
+    (draw-axes :canvas view
                :padding padding :inner-padding inner-padding
                :font font
                :grid grid
@@ -1041,7 +1075,8 @@
         :top-right (g/viewport graph-view (- gw lw padding) padding lw lh true)
         :bottom-left (g/viewport graph-view padding (- gh lh padding) lw lh true)
         :bottom-right (g/viewport graph-view (- gw lw padding) (- gh lh padding) lw lh true)))
-    (g/fill-rect legend-view 0 0 lw lh background-color)
+    (when (not= :none background-color)
+      (g/fill-rect legend-view 0 0 lw lh background-color))
     (draw-legend legend-view :font font :padding legend-padding :labels y-columns :view-width 0
                  :color-map color-map :legend-map legend-map :frame true))
 
@@ -1064,6 +1099,8 @@
 
   Basic Parameters
   * :canvas - A gfx2d/Image to draw on
+  *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
+  *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :color-fn - Function `(color-fn x y)` that returns a gfx2d color (32 bit integer) used to color each cell in the heat-map. If color-fn evaluates to a falsey value, that cell will be left blank.
   * :cell-text-fn - Function `(cell-text-fn x y)` that returns an optional string to render for each cell.
   * :num-columns - Number of columns to draw.
@@ -1075,7 +1112,7 @@
   Returns the modified original canvas.
   ```
   [&named
-   canvas
+   canvas width height
    color-fn
    cell-text-fn
    num-columns
@@ -1088,7 +1125,7 @@
   (assert num-columns)
   (assert num-rows)
   (assert color-fn)
-  (def {:width canvas-width :height canvas-height} (g/unpack canvas))
+  (def [canvas canvas-width canvas-height] :shadow (canvas-and-dimensions canvas width height))
   (default box-gap 0)
   (default font (dyn *font* default-font))
 
@@ -1121,11 +1158,10 @@
   ```
   Generate a heat map.
 
-  Render a heat map on a set of axis. Will nicely fill the passed in image, so use a subview to draw to a section of the chart.
-
   Basic Parameters
-  * :width - New canvas width in pixels
-  * :height - New canvas height in pixels
+  * :canvas - A gfx2d/Image to draw on
+  *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
+  *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :color-map - a color map keyword or function used to map numbers 0
   * :save-as - optional path to save the chart
 
@@ -1142,7 +1178,6 @@
   * :ys - (optional) keys into each column - by default this is just (range num-rows-in-data).
 
   Axes Styling
-  * :grid - how to draw grid lines. One of :none, :solid, or :stipple
   * :x-ticks - manually set the tick marks on the X axis instead of auto-detecting them
   * :x-label - optional label for the x axis
   * :y-label - optional label for the y axis
@@ -1172,7 +1207,7 @@
   Returns a new canvas.
   ```
   [&named
-   width height
+   canvas width height
    data data-scale xs ys
    color-fn cell-text-fn
    num-columns num-rows
@@ -1194,8 +1229,6 @@
    save-as]
 
   # Check parameters and set defaults.
-  (default width default-width)
-  (default height default-height)
   (default padding (dyn *padding* default-padding))
   (default background-color (dyn *background-color* default-background-color))
   (default text-color (dyn *text-color* default-text-color))
@@ -1205,7 +1238,8 @@
   (default tick-length 0)
 
   # Allow a few ways to populate the heat-map with data
-  (def color-map :shadow (if (keyword? color-map) (assert (get color-maps color-map) "invalid color-map") color-map))
+  (default color-map :magma)
+  (def color-map :shadow (to-color-map color-map))
   (default data [[]])
   (default xs (or (and num-columns (range num-columns)) (sort (keys data))))
   (default ys (range (or num-rows (length (get data (first xs))))))
@@ -1222,8 +1256,8 @@
   (enum legend :none :top :top-left :top-right :bottom-left :bottom-right :left :right :top :bottom)
 
   # Get canvas
-  (def canvas (g/blank width height 4))
-  (g/fill-rect canvas 0 0 width height background-color)
+  (def [canvas width height] :shadow (canvas-and-dimensions canvas width height))
+  (when (not= background-color :none) (g/fill-rect canvas 0 0 width height background-color))
 
   # Render title section, and update view to cut out title
   (var title-padding 0)
@@ -1276,7 +1310,7 @@
   (default x-max (+ -0.5 num-columns))
   (default y-max (+ -0.5 num-rows))
   (def [graph-view to-pixel-space _to-metric-space]
-    (draw-axes view
+    (draw-axes :canvas view
                :padding padding :inner-padding 0
                :font font
                :grid :none # grid doesn't work well with heat-map
@@ -1316,7 +1350,8 @@
         :top-right (g/viewport graph-view (- gw lw padding) padding lw lh true)
         :bottom-left (g/viewport graph-view padding (- gh lh padding) lw lh true)
         :bottom-right (g/viewport graph-view (- gw lw padding) (- gh lh padding) lw lh true)))
-    (g/fill-rect legend-view 0 0 lw lh background-color)
+    (when (not= :none background-color)
+      (g/fill-rect legend-view 0 0 lw lh background-color))
     (draw-heat-legend legend-view :font font :padding legend-padding :color-map color-map
                       :swatch-width legend-width :swatch-height legend-height
                       :text-color text-color :labels legend-labels :layout legend-layout :frame legend-frame))

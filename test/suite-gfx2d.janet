@@ -365,7 +365,7 @@
     (fill-rect canvas 0 0 2000 2000 black)
     (def [view convert]
       (charts/draw-axes
-        canvas
+        :canvas canvas
         :padding 4
         :format-y |(string/format "$%.2f" $)
         :x-label "Units"
@@ -450,5 +450,38 @@
 (test-heat-map-1 :viridis)
 (test-heat-map-1 :turbo)
 (test-heat-map-1 :grayscale)
+(test-heat-map-1 :magma)
+(test-heat-map-1 :bluescale)
+
+(defn test-multi-chart
+  []
+  (def big-canvas (blank 512 512 4))
+  (def nw-canvas (viewport big-canvas 0 0 256 256 true))
+  (def ne-canvas (viewport big-canvas 256 0 256 256 true))
+  (def sw-canvas (viewport big-canvas 0 256 256 256 true))
+  (def se-canvas (viewport big-canvas 256 256 256 256 true))
+  (eachp [i sector] [nw-canvas ne-canvas sw-canvas se-canvas]
+    (charts/line-chart
+      :canvas sector
+      :data {:x (range 200)
+             :y (seq [x :range [0 200]] (* 5 (math/cos (* x (+ 0.04 (* i 0.02))))))}
+      :super-sample 4
+      :line-style :stroke
+      :color-map blue
+      :x-column :x
+      :y-column :y))
+  (check-image big-canvas "4_chart.png"))
+
+(test-multi-chart)
+
+(defn test-super-minimal-chart
+  []
+  # By default is too large so we shrink it
+  (def c (charts/line-chart :padding 0 :inner-padding 0 :width 200 :height 200
+                            :color-map red
+                            :data {:x (reverse (range 100)) :y (range 100)}))
+  (check-image c "minimal_chart.png"))
+
+(test-super-minimal-chart)
 
 (end-suite)
