@@ -1,0 +1,10 @@
+{:title "GFX2D"
+ :author "Calvin Rose"
+ :template "mdzdoc/main.html"}
+---
+
+Module for CPU-based 2d raster graphics for Janet.
+
+## Reference
+
+@api-docs("../../spork" "gfx2d")
