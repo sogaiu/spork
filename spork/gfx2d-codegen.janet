@@ -61,7 +61,7 @@
 ### [ ] - color and otherwise anotated text w/ VT100 escape codes (allow for pretty printing w/ colors)
 ### [x] - remove prototype fill in default build (leave code for testing purposes)
 ### [x] - vector font rendering
-### [ ] - anti-aliasing w/ mutli-sampling and/or analysis
+### [x] - anti-aliasing w/ mutli-sampling and/or analysis
 ### [x] - shaders using cjanet-jit - "fill" and "stroke" shaders
 ### [x] - multithreading
 ### [ ] - Image analysis and statistics (RMSE, histogram, k-means, etc.)
@@ -497,7 +497,7 @@
     (return img)))
 
 ##
-## Color Constants
+## Colors
 ##
 
 # For unpacking pixels from image buffers more easily
@@ -527,6 +527,31 @@
   [r:int g:int b:int a:int] -> uint32_t
   (return (+ (cast uint32_t r) (<< (cast uint32_t g) 8) (<< (cast uint32_t b) 16) (<< (cast uint32_t a) 24))))
 
+# Better blending
+(typedef ColorHDR
+  (named-struct ColorHDR
+    r float
+    g float
+    b float
+    a float))
+
+(function colorsplit-hdr :static :inline
+  [color:uint32_t] -> ColorHDR
+  (return
+    (named-struct ColorHDR
+      r (/ (cast float (band color 0xFF)) 255)
+      g (/ (cast float (band (>> color 8) 0xFF)) 255)
+      b (/ (cast float (band (>> color 16) 0xFF)) 255)
+      a (/ (cast float (band (>> color 24) 0xFF)) 255))))
+
+(function hdr-to-uint :static :inline
+  [color:ColorHDR] -> uint32_t
+  (return
+    (+ (cast uint32_t (* 255 color.r))
+       (<< (cast uint32_t (* 255 color.g)) 8)
+       (<< (cast uint32_t (* 255 color.b)) 16)
+       (<< (cast uint32_t (* 255 color.a)) 24))))
+
 (def- colors
   {:red 0xFF0000FF
    :green 0xFF00FF00
@@ -553,13 +578,33 @@
                        (cast int (* 0xFF b))
                        (cast int (* 0xFF a)))))
 
-  (cfunction rgb-pre-mul
-    "Make an RRB color constants from components and premultiply the alpha"
+  (cfunction srgb
+    "Make an sRGB color constant from components. Each component is a number from 0 to 1.
+    A gamma of 2.2 is applied to each RGB component."
     [r:double g:double b:double &opt a:double=1.0] -> uint32_t
-    (return (colorjoin (cast int (* 0xFF r a))
-                       (cast int (* 0xFF g a))
-                       (cast int (* 0xFF b a))
-                       (cast int (* 0xFF a))))))
+    (return (rgb (pow r 2.2) (pow g 2.2) (pow b 2.2) a)))
+
+  (cfunction as-rgb
+    "Extract a 4 vector from a color"
+    [color:uint32_t] -> JanetTuple
+    (def hdr:ColorHDR (colorsplit-hdr color))
+    (def tup:*Janet (janet-tuple-begin 4))
+    (set (aref tup 0) (janet-wrap-number hdr.r))
+    (set (aref tup 1) (janet-wrap-number hdr.g))
+    (set (aref tup 2) (janet-wrap-number hdr.b))
+    (set (aref tup 3) (janet-wrap-number hdr.a))
+    (return (janet-tuple-end tup)))
+
+  (cfunction as-srgb
+    "Extract a 4 vector from a color. Interprets 8 bit color components for RGB as having a gamma of 2.2."
+    [color:uint32_t] -> JanetTuple
+    (def hdr:ColorHDR (colorsplit-hdr color))
+    (def tup:*Janet (janet-tuple-begin 4))
+    (set (aref tup 0) (janet-wrap-number (pow hdr.r (/ 1.0 2.2))))
+    (set (aref tup 1) (janet-wrap-number (pow hdr.g (/ 1.0 2.2))))
+    (set (aref tup 2) (janet-wrap-number (pow hdr.b (/ 1.0 2.2))))
+    (set (aref tup 3) (janet-wrap-number hdr.a))
+    (return (janet-tuple-end tup))))
 
 ###
 ### Blending modes
@@ -573,6 +618,20 @@
 (comp-unless (dyn :shader-compile)
 
   # TODO - be less conservative with clampz
+
+  (function color-lerp :static :inline
+    ```
+    Blend between two colors
+    ```
+    [a:uint32_t b:uint32_t t:float] -> uint32_t
+    (def A:ColorHDR (colorsplit-hdr a))
+    (def B:ColorHDR (colorsplit-hdr b))
+    (var C:ColorHDR)
+    (set C.r (lerp A.r B.r t))
+    (set C.g (lerp A.g B.g t))
+    (set C.b (lerp A.b B.b t))
+    (set C.a (lerp A.a B.a t))
+    (return (hdr-to-uint C)))
 
   (function blend-over :static :inline
     ```
@@ -1538,7 +1597,12 @@
       ttf-data-size uint32_t
       planes *JanetTable
       tab-width float
-      scale float))
+      scale float
+      pixel-to-glyph-space float # factor to convert pixel height to a font scaling.
+      glyph-space-to-pixel float # factor to convert font scaling to a pixel height.
+      ascent int # in glyph space, distance from baseline to the ascender line
+      descent int # in glyph spacce, negative distance from baseline to descender line
+      line-gap int)) # in glyph space, distance between decender above and ascender below
 
   (function gc-font :static
     [p:*void s:size_t] -> int
@@ -1574,18 +1638,20 @@
 
   (function bitmap-bake
     "Custom bitmap bake to better handle missing glyphs, etc. Modified from BakeFontBitmap_internal in stb_truetype.h"
-    [data:*uint8_t scale:float pixels:*uint8_t pw:int ph:int first-char:int num-chars:int chardata:*stbtt_bakedchar] -> int
+    [font:*Font data:*uint8_t scale:float pixels:*uint8_t pw:int ph:int first-char:int num-chars:int chardata:*stbtt_bakedchar] -> int
     (def x:int) (def y:int) (def bottom-y:int)
     (def f:stbtt-fontinfo)
     (set f.userdata NULL)
+    # TODO - handle .ttc files with multiple fonts. Useful for CJK rendering - for example, noto-cjk fonts are distributed in .ttc files.
+    # STBTT can handles this with some work.
     (unless (stbtt-InitFont &f data 0) (return -1))
+    (stbtt-GetFontVMetrics &f &font->ascent &font->descent &font->line-gap)
     (memset pixels 0 (* pw ph))
     (memset chardata 0 (* num-chars (sizeof stbtt_bakedchar)))
     (set x 1) (set y 1) (set bottom-y 1)
-    # Allow both pts and pixels
-    (if (< scale 0)
-      (set scale (- scale)) # pts
-      (set scale (stbtt-ScaleForPixelHeight &f scale))) # pixels
+    (set font->glyph-space-to-pixel (stbtt-ScaleForPixelHeight &f 1))
+    (set font->pixel-to-glyph-space (/ 1.0 font->glyph-space-to-pixel))
+    (set scale (stbtt-ScaleForPixelHeight &f scale))
     (def advance:int)
     (def lsb:int)
     (def x0:int)
@@ -1643,7 +1709,7 @@
       (set bitmap (janet-realloc bitmap (* atlas-size atlas-size)))
       # TODO - don't reload font-buffer every-time
       # TODO - better rect packing for less memory usage?
-      (def result:int (bitmap-bake font-buffer font-scale bitmap
+      (def result:int (bitmap-bake font font-buffer font-scale bitmap
                                    atlas-size atlas-size first-codepoint n-codepoints cdata))
       (if (> result 0) (break))
       (def frac-filled:float (/ (cast float (- result)) n-codepoints))
@@ -1708,6 +1774,9 @@
     (var max-fy:float 0.0)
     (var fp:*FontPlane NULL)
     (var cp:uint32_t 0)
+    (def ascent:float (* font->ascent font->glyph-space-to-pixel font->scale scale))
+    (def descent:float (* font->descent font->glyph-space-to-pixel font->scale scale))
+    (def shrinkwrap-y:int 0) # if true, we use glyph geometry to measure text. Otherwise, we use font-vmetrics.
     (while *cursor
       (set cp (utf8-read-codepoint &cursor))
       (if (not cp) (break))
@@ -1719,7 +1788,7 @@
       # Special handling
       (when (= 10 cp)
         (set fx 0)
-        (+= fy (* scale font->scale))
+        (+= fy (* scale font->scale font->glyph-space-to-pixel (+ font->line-gap font->ascent (- font->descent))))
         (continue))
       (when (= cp 9)
         (+= fx (* font->tab-width scale))
@@ -1731,10 +1800,16 @@
                           glyphi
                           &fx &fy
                           &q 0)
+      # TODO - depending on orientation, use font vmetrics instead of "shrinkwrapping" the text.
       (set min-fx (? (< q.x0 min-fx) q.x0 min-fx))
-      (set min-fy (? (< q.y0 min-fy) q.y0 min-fy))
       (set max-fx (? (> q.x1 max-fx) q.x1 max-fx))
-      (set max-fy (? (> q.y1 max-fy) q.y1 max-fy)))
+      (if shrinkwrap-y
+        (do
+          (set min-fy (? (< q.y0 min-fy) q.y0 min-fy))
+          (set max-fy (? (> q.y1 max-fy) q.y1 max-fy)))
+        (do
+          (set min-fy (? (< (- fy ascent) min-fy) (- fy ascent) min-fy))
+          (set max-fy (? (> (- fy descent) max-fy) (- fy descent) max-fy)))))
     # Handle last position
     (set max-fx (? (> fx max-fx) fx max-fx))
     (set max-fy (? (> fy max-fy) fy max-fy))
@@ -1776,10 +1851,15 @@
     (set font->ttf-data font-buffer)
     (set font->planes (janet-table 10))
     (set font->scale font-scale)
+    (set font->glyph-space-to-pixel 1.0)
+    (set font->pixel-to-glyph-space 1.0)
     (set font->ttf-data-size nread)
     (set font->tab-width 0)
+    (set font->ascent 0)
+    (set font->descent 0)
+    (set font->line-gap 0)
 
-    # Now calculate tab width as 2 underscores
+    # Now calculate tab width as 2 underscores. Also fills in some fields in the font.
     (def measure:TextMeasure (measure-text-impl font (cast (const *uint8_t) "_") 1 0))
     (set font->tab-width (* FONT_SPACES_TO_TABS measure.width))
 
@@ -1789,7 +1869,7 @@
     "Measure how large a piece of text would be when rasterized. Returns a 2-tuple of [width height]"
     [font:*Font text:cstring &opt scale:float=1.0 orientation:int=0] -> JanetTuple
     (var (cursor (const *uint8_t)) (cast (const *uint8_t) text))
-    (def measure:TextMeasure (measure-text-impl font cursor scale orientation)) # always measure 0 orientation
+    (def measure:TextMeasure (measure-text-impl font cursor scale orientation))
     (def tup:*Janet (janet-tuple-begin 2))
     (set (aref tup 0) (janet-wrap-number measure.width))
     (set (aref tup 1) (janet-wrap-number measure.height))
@@ -1802,10 +1882,12 @@
     (var fp:*FontPlane NULL)
     (var cp:uint32_t 0)
     (def orient:OrientationTransform (get-orientation orientation))
+    # Always do internal measurement non-rotated, and then rotate output during sampling.
     (def measure:TextMeasure (measure-text-impl font cursor scale 0))
-    # Shift origin to match simple text - by default, text origin is header not baseline
+    # Shift origin to match simple text - by default, text origin is upper most glyph. Instead, should be ascender line.
+    (def from-glyphtop:int (? (= 1 (band orientation 2r1100)) 1 0))
     (var fx:float (- measure.xmin))
-    (var fy:float (- measure.ymin))
+    (var fy:float (? from-glyphtop (- measure.ymin) (* font->ascent scale font->scale font->glyph-space-to-pixel)))
     (while *cursor
       (set cp (utf8-read-codepoint &cursor))
       (if (not cp) (break))
@@ -1815,7 +1897,7 @@
       # Special handling
       (when (= 10 cp)
         (set fx (- measure.xmin))
-        (+= fy (* scale font->scale))
+        (+= fy (* scale font->scale font->glyph-space-to-pixel (+ font->line-gap font->ascent (- font->descent))))
         (continue))
       (when (= cp 9)
         (+= fx (* font->tab-width scale))
