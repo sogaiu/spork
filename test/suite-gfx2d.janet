@@ -439,7 +439,7 @@
       :width (* 0.2 1920) :height (* 0.2 1080)
       :num-columns (* 1 48) :num-rows (* 1 27)
       :font (load-font "examples/fonts/Roboto-Regular.ttf" 12)
-      :title (string "Heat Map Min Distance Test " (string/ascii-upper mapping))
+      :title (string "Heat Map Distance Test " (string/ascii-upper mapping))
       #:cell-text-color 0xFFFFFFFF
       #:cell-text-fn (fn [x y] (string/format "%d,%d" x y))
       :color-fn (fn [x y]
