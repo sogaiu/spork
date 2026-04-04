@@ -9,8 +9,8 @@
 ### libraries like plPlot may be more suitable. However, out-of-the-box chart generation with minimal
 ### dependencies is very useful to have.
 ###
-### Data is passed to most charts as a "data-frame", which is a table mapping string column names
-### to arrays of data points.
+### Data is passed to most charts as a "data-frame", which is a table mapping keyword (or any Janet value) column names
+### to arrays of data points, usually numbers.
 ###
 ### Data frame example:
 ###
@@ -18,8 +18,12 @@
 ###  :temperature-1 [75.1 75.2 75.4 75.5 75.5 75.4]
 ###  :temperature-2 [55.1 55.4 55.7 60.0 60.4 60.9]}
 ###
-
-### TODO
+### By default, most charts will not do any anti-aliasing with the default styles and fonts. However, anti-aliased TTF
+### fonts are supported in any place where we accept a font, and all charts that benefit from it support super-sample
+### anti-aliasing for chart graphics.
+###
+### Features!
+###
 ### [x] - horizontal legend should still be able to wrap vertically if too wide.
 ### [x] - LABEL YOUR AXES!
 ### [x] - wrap colors, padding, font, etc. into some kind of styling table to pass around consistently
@@ -33,6 +37,7 @@
 ### [x] - heat map
 ### [ ] - error bars on line chart
 ### [ ] - fill between chart
+### [ ] - attributed text for captions and annotations
 ### [x] - handle nils in y-columns for sparse data
 ### [x] - easier custom chart annotations in the metric space (horizontal lines, vertical lines, etc.)
 ### [ ] - captions and sub-titles
@@ -150,7 +155,6 @@
   Use this information for calculating render transform. Should handle non-existant columns."
   [data x-column y-columns
    &opt
-   width height min-spacing
    override-min-x override-max-x
    override-min-y override-max-y]
 
@@ -159,10 +163,10 @@
     (break [override-min-x override-max-x override-min-y override-max-y]))
 
   # Calculate precise bounds for all x and y values
+  (def min-x (or (extreme < (filter identity (get data x-column))) 0))
+  (def max-x (or (extreme > (filter identity (get data x-column))) 1))
   (var min-y math/inf)
   (var max-y math/-inf)
-  (var min-x (or (extreme < (filter identity (get data x-column))) 0))
-  (var max-x (or (extreme > (filter identity (get data x-column))) 1))
   (each c y-columns
     (set min-y (min min-y (extreme < (filter identity (get data c [math/inf])))))
     (set max-y (max max-y (extreme > (filter identity (get data c [math/-inf]))))))
@@ -255,22 +259,27 @@
   (setdyn *stroke-color* g/black)
   (setdyn *text-color* g/black))
 
-(defn color-lerp
+(defn- color-lerp-internal
   [a b t]
-  "Linearly interpolate between 2 colors in RGB space. Colors are srgb encoded as 32 bit unsigned integers."
-  (def [ar ag ab aa] (g/as-srgb a))
-  (def [br bg bb ba] (g/as-srgb b))
+  (def [ar ag ab aa] a)
+  (def [br bg bb ba] b)
   (g/srgb
     (lerp ar br t)
     (lerp ag bg t)
     (lerp ab bb t)
     (lerp aa ba t)))
 
+(defn color-lerp
+  [a b t]
+  "Linearly interpolate between 2 colors in RGB space. Colors are srgb encoded as 32 bit unsigned integers."
+  (color-lerp-internal (g/as-srgb a) (g/as-srgb b) t))
+
 (defn make-color-map
   "Create a function that linearly interpolates between colors for colormapping."
   [& colors]
   (def n-colors (length colors))
   (def n-1-colors (- n-colors 1))
+  (def srgb-colors (map g/as-srgb colors))
   (fn :interp
     [t]
     (def t :shadow (clamp t 0 1))
@@ -281,7 +290,8 @@
     (def t-at-b (/ b-index n-1-colors))
     (def ab-interval (- t-at-b t-at-a))
     (def u (clamp (/ (- t t-at-a) ab-interval) 0 1))
-    (color-lerp (in colors b-index) (in colors a-index) u)))
+    # Sampling should not allocate.
+    (color-lerp-internal (in srgb-colors b-index) (in srgb-colors a-index) u)))
 
 (defn invert-color-map
   "Create an inverted color-map from an existing color map."
@@ -515,12 +525,14 @@
   * :x-suffix - if format-x not provided, allows easily adding a string suffix to x axis tick mark labels
   * :y-suffix - if format-y not provided, allows easily adding a string suffix to y axis tick mark labels
   * :x-ticks - Allow setting specific tick marks to be used marking the x axis rather than making a guess.
+  * :y-ticks - Allow setting specific tick marks to be used marking the y axis rather than making a guess.
   * :x-minor-ticks - How many minor tick marks, if any, to place between major tick marks on the x axis
   * :y-minor-ticks - How many minor tick marks, if any, to place between major tick marks on the y axis
   * :x-labels-vertical - Turn x labels vertical so more can fit on the axis
   * :min-x-spacing - When guessing x ticks, allow setting a lower limit to the metric spacing between ticks
   * :min-y-spacing - When guessing y ticks, allow setting a lower limit to the metric spacing between ticks
   * :tick-length - how many pixels long to make major tick marks (minor tick marks are 1/2 major tick marks)
+  * :transpose - Consider the x axis to be the vertical axis instead of the horizontal axis
 
   Returns a 4-tuple [view:gfx2d/Image to-pixel-space:fn to-metric-space:fn outer-canvas:gfx2d/Image]
 
@@ -535,7 +547,28 @@
    grid format-x format-y
    x-label y-label tick-length
    x-suffix x-prefix y-suffix y-prefix
-   x-ticks x-minor-ticks y-minor-ticks x-labels-vertical]
+   x-ticks y-ticks
+   x-minor-ticks y-minor-ticks x-labels-vertical transpose]
+
+  # Recur with shifted arguments if transpose (before any defaults)
+  (when transpose
+    (def [view to-pix to-metric outer-canvas]
+      (draw-axes
+        :canvas canvas :width width :height height
+        :x-label y-label :y-label x-label
+        :padding padding :inner-padding inner-padding :font font
+        :x-min y-min :x-max y-max :y-min x-min :y-max x-max
+        :grid grid :format-x format-y :format-y format-x
+        :x-suffix y-suffix :x-prefix y-prefix
+        :y-suffix x-suffix :y-prefix x-prefix
+        :x-ticks y-ticks :y-ticks x-ticks
+        :x-minor-ticks y-minor-ticks :y-minor-ticks x-minor-ticks
+        :x-labels-vertical x-labels-vertical # TODO - rename it or change behavior?
+        :min-x-spacing min-y-spacing :min-y-spacing min-x-spacing
+        :tick-length tick-length))
+    (defn to-pix-2 [x y] (to-pix y x))
+    (defn to-metric-2 [x y] (to-metric y x))
+    (break [view to-pix-2 to-metric-2 outer-canvas]))
 
   (def [canvas width height] :shadow (canvas-and-dimensions canvas width height))
   (default padding (dyn *padding* default-padding))
@@ -596,7 +629,15 @@
 
   # Guess y axis ticks - used to calculate left and right padding
   (def [yticks yformat y-axis-tick-label-width]
-    (guess-axis-ticks y-min y-max (- height top-padding bottom-padding) 20 true font y-prefix y-suffix min-y-spacing format-y))
+    (if y-ticks
+      (do
+        (def fmt (if format-y format-y string))
+        (var maxw 0)
+        (each yt y-ticks
+          (def [w _h] (text-measure (fmt yt) font 1))
+          (set maxw (max maxw w)))
+        [nil nil maxw maxw])
+      (guess-axis-ticks y-min y-max (- height top-padding bottom-padding) 20 true font y-prefix y-suffix min-y-spacing format-y)))
 
   # Calculate left and right padding once y-axis is guessed
   (def outer-left-padding (+ padding y-axis-tick-label-width (if y-label (+ padding font-height) 0)))
@@ -622,7 +663,7 @@
 
   # TODO - replace tick mark draw calls to g/plot with g/fill-rect to allow for thicker ticks
 
-  # Draw Y axis
+  # Draw vertical axis
   (assert yticks "unable to generate y ticks. Make your chart bigger?")
   (each metric-y yticks
     (def [_ pixel-y] (convert 0 metric-y))
@@ -634,7 +675,7 @@
       (g/plot canvas left-padding rounded-pixel-y (- width right-padding) rounded-pixel-y grid-color stipple-cycle stipple-on)
       (g/plot canvas (+ tick-trim outer-left-padding) rounded-pixel-y (+ outer-left-padding tick-height) rounded-pixel-y grid-color)))
 
-  # Draw X axis - allow manual override for x tick marks
+  # Draw horizontal axis - allow manual override for x tick marks
   (def [xticks xformat]
     (if x-ticks [x-ticks (if format-x format-x string)]
       (guess-axis-ticks x-min x-max (- width left-padding right-padding) 20 x-labels-vertical font x-prefix x-suffix min-x-spacing format-x)))
@@ -651,7 +692,7 @@
       (g/plot canvas rounded-pixel-x top-padding rounded-pixel-x (- height bottom-padding) grid-color stipple-cycle stipple-on)
       (g/plot canvas rounded-pixel-x (- height outer-bottom-padding tick-trim) rounded-pixel-x (- height outer-bottom-padding tick-height) grid-color)))
 
-  # Draw minor x tick marks
+  # Draw minor horizontal axis tick marks
   (when (and x-minor-ticks (< 1 (length xticks)))
     (def len (length xticks))
     (def dx-first (- (in xticks 1) (in xticks 0)))
@@ -668,7 +709,7 @@
            :when (and (> x left-padding) (< x (- width right-padding)))]
       (g/plot canvas x (- height outer-bottom-padding tick-height) x (- height outer-bottom-padding (div tick-height 2)) grid-color)))
 
-  # Draw minor y tick marks
+  # Draw minor vertical axis tick marks
   (when (and y-minor-ticks (< 1 (length yticks)))
     (def len (length yticks))
     (def dy-first (- (in yticks 1) (in yticks 0)))
@@ -733,6 +774,7 @@
   * :bar-padding - space between bars in bar-charts
   * :stroke-thickness - thickness in pixels of the stroke of the graph when :line-type = :stroke
   * :x-colors - for bar and scatter plots, optionally set per-point/per-bar colors with an function (f x y index) called on each point.
+  * :transpose - When transpose is enabled, draw bar and area charts from the y-axis instead of the x-axis (make horizontal bar charts). Should be used with a transposed axes.
 
   Returns the modified canvas image.
   ```
@@ -750,7 +792,8 @@
    bar-padding
    stroke-thickness
    super-sample
-   color-map]
+   color-map
+   transpose]
 
   (def [canvas canvas-width canvas-height] :shadow (canvas-and-dimensions canvas width height))
   (default to-pixel-space (fn :convert [x y] [x y]))
@@ -781,7 +824,8 @@
                      :stroke-thickness (* super-sample stroke-thickness)
                      :point-radius (* super-sample point-radius)
                      :line-style-per-column line-style-per-column
-                     :line-style line-style)
+                     :line-style line-style
+                     :transpose transpose)
     # The resize + blend must match, as well as the destination pixels!
     # After resize, alpha is pre-multiplied
     (g/resize-into temp-canvas new-canvas true)
@@ -836,15 +880,23 @@
 
       :area
       (do
-        (def min-x (first pts))
-        (def max-x (get pts (- (length pts) 2)))
-        (def bottom-y 10000)
-        (g/fill-path canvas [;pts max-x bottom-y min-x bottom-y] graph-color))
+        (if transpose
+          (do
+            (def min-y (get pts 1))
+            (def max-y (last pts))
+            (def left-x -1)
+            (g/fill-path canvas [;pts left-x max-y left-x min-y] graph-color))
+          (do
+            (def min-x (first pts))
+            (def max-x (get pts (- (length pts) 2)))
+            (def bottom-y (inc canvas-height))
+            (g/fill-path canvas [;pts max-x bottom-y min-x bottom-y] graph-color))))
 
       :bar
       (do
         (def [base-x base-y] (to-pixel-space 0 0))
         (var last-right nil)
+        (var last-top nil)
         (loop [i :range [0 (length pts) 2]]
           (def j (div i 2))
           (def is-first (= 0 i))
@@ -852,17 +904,30 @@
           (def x (get pts i))
           (def y (get pts (+ 1 i)))
           (def color (x-colors (get xs j) (get ys j) j))
-          (def x-next (if-not is-last (get pts (+ i 2))))
-          (def x-prev (if-not is-first (get pts (- i 2))))
-          # First and last bars extrapolate bar width
-          (def x-next1 (if is-last (+ x x (- x-prev)) x-next))
-          (def x-prev1 (if is-first (+ x x (- x-next)) x-prev))
-          # Prefer to use `last-right` to keep pixel padding consistent. Otherwise, the bars look a little off due to rounding errors.
-          (def x-left (if last-right (+ last-right bar-padding) (math/ceil (mean [x x-prev1]))))
-          (def x-right (math/floor (mean [x x-next1])))
-          (def width (- x-right x-left bar-padding))
-          (set last-right (+ x-left width))
-          (g/fill-rect canvas x-left base-y width (- y base-y) color))))
+          # TODO - clean this up, could definitely be simpler
+          (if transpose
+            (do # iterating pos -> neg
+              (def y-next (if-not is-last (get pts (+ i 3))))
+              (def y-prev (if-not is-first (get pts (- i 1))))
+              (def y-next1 (if is-last (+ y y (- y-prev)) y-next))
+              (def y-prev1 (if is-first (+ y y (- y-next)) y-prev))
+              (def y-bot (if last-top last-top (math/ceil (mean [y y-prev1]))))
+              (def y-top (math/floor (mean [y y-next1])))
+              (def height (- y-bot y-top bar-padding))
+              (set last-top y-top)
+              (g/fill-rect canvas base-x y-top (- x base-x) height color))
+            (do # iterating neg -> pos
+              (def x-next (if-not is-last (get pts (+ i 2))))
+              (def x-prev (if-not is-first (get pts (- i 2))))
+              # First and last bars extrapolate bar width
+              (def x-next1 (if is-last (+ x x (- x-prev)) x-next))
+              (def x-prev1 (if is-first (+ x x (- x-next)) x-prev))
+              # Prefer to use `last-right` to keep pixel padding consistent. Otherwise, the bars look a little off due to rounding errors.
+              (def x-left (if last-right (+ last-right bar-padding) (math/ceil (mean [x x-prev1]))))
+              (def x-right (math/floor (mean [x x-next1])))
+              (def width (- x-right x-left bar-padding))
+              (set last-right (+ x-left width))
+              (g/fill-rect canvas x-left base-y width (- y base-y) color))))))
 
     # Plot points
     (when circle-points
@@ -942,12 +1007,13 @@
    save-as
    legend-map
    tick-length
-   line-style line-style-per-column
+   line-style line-style-per-column bar-padding
    x-label y-label
    x-suffix x-prefix y-suffix y-prefix
    x-column y-column
    x-ticks x-minor-ticks y-minor-ticks
-   x-labels-vertical]
+   x-labels-vertical
+   transpose]
 
   # Check parameters and set defaults.
   (assert data)
@@ -1003,25 +1069,25 @@
 
   # Draw axes
   (def [x-min x-max y-min y-max] :shadow
-    (let [{:width view-width :height view-height} (g/unpack view)]
-      (calculate-data-bounds data x-column y-columns
-                             view-width view-height 20
-                             x-min x-max y-min y-max)))
+    (calculate-data-bounds data x-column y-columns
+                           x-min x-max y-min y-max))
   (def [graph-view to-pixel-space _to-metric-space]
-    (draw-axes :canvas view
-               :padding padding :inner-padding inner-padding
-               :font font
-               :grid grid
-               :format-x format-x :format-y format-y
-               :x-suffix x-suffix :x-prefix x-prefix
-               :y-suffix y-suffix :y-prefix y-prefix
-               :x-min x-min :x-max x-max
-               :y-min y-min :y-max y-max
-               :x-ticks x-ticks :tick-length tick-length
-               :x-label x-label :y-label y-label
-               :x-minor-ticks x-minor-ticks
-               :y-minor-ticks y-minor-ticks
-               :x-labels-vertical x-labels-vertical))
+    (draw-axes
+      :canvas view
+      :padding padding :inner-padding inner-padding
+      :font font
+      :grid grid
+      :format-x format-x :format-y format-y
+      :x-suffix x-suffix :x-prefix x-prefix
+      :y-suffix y-suffix :y-prefix y-prefix
+      :x-min x-min :x-max x-max
+      :y-min y-min :y-max y-max
+      :x-ticks x-ticks :tick-length tick-length
+      :x-label x-label :y-label y-label
+      :x-minor-ticks x-minor-ticks
+      :y-minor-ticks y-minor-ticks
+      :x-labels-vertical x-labels-vertical
+      :transpose transpose))
 
   # Render graph lines
   (plot-line-graph
@@ -1036,7 +1102,9 @@
     :super-sample super-sample
     :circle-points (or circle-points scatter)
     :stroke-thickness stroke-thickness
-    :point-radius point-radius)
+    :point-radius point-radius
+    :bar-padding bar-padding
+    :transpose transpose)
 
   # Draw internal legend if selected
   (when (index-of legend [:top-left :top-right :bottom-left :bottom-right])
