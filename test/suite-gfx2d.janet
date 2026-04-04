@@ -463,8 +463,8 @@
   (eachp [i sector] [nw-canvas ne-canvas sw-canvas se-canvas]
     (charts/line-chart
       :canvas sector
-      :data {:x (range 200)
-             :y (seq [x :range [0 200]] (* 5 (math/cos (* x (+ 0.04 (* i 0.02))))))}
+      :data {:x (range 201)
+             :y (seq [x :range [0 201]] (* 5 (math/cos (* x (+ 0.04 (* i 0.02))))))}
       :super-sample 4
       :line-style :stroke
       :color-map blue
@@ -504,5 +504,6 @@
 (test-horizontal-chart :area)
 (test-horizontal-chart :bar)
 (test-horizontal-chart :stroke)
+(test-horizontal-chart :multi-bar)
 
 (end-suite)

@@ -344,6 +344,8 @@
   (function create-image :static
     "Make an abstract image object"
     [parent:*Image owns-memory:int width:int height:int channel:int stride:int data:*uint8_t] -> *Image
+    (if (> width (<< 1 14)) (janet-panicf "width of %v is too large" (janet-wrap-number width)))
+    (if (> height (<< 1 14)) (janet-panicf "height of %v is too large" (janet-wrap-number height)))
     (def image:*Image (janet-abstract-threaded Image-ATP (sizeof Image)))
     (set image->owns-memory owns-memory)
     (set image->parent parent)
