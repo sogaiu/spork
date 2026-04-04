@@ -30,7 +30,7 @@
 ### [x] - stippled grid lines
 ### [x] - bar chart
 ### [x] - area chart
-### [ ] - horizontal bar charts
+### [x] - horizontal bar charts
 ### [ ] - multi-bar charts
 ### [ ] - flame graph
 ### [ ] - packing chart
@@ -41,6 +41,7 @@
 ### [x] - handle nils in y-columns for sparse data
 ### [x] - easier custom chart annotations in the metric space (horizontal lines, vertical lines, etc.)
 ### [ ] - captions and sub-titles
+### [ ] - labeling data points
 
 (import spork/gfx2d :as g)
 

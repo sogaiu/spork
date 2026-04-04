@@ -484,4 +484,25 @@
 
 (test-super-minimal-chart)
 
+(defn test-horizontal-chart
+  [line-style]
+  (def c
+    (charts/line-chart
+      :title (string "H " line-style " Chart (sine waves)")
+      :data {:x (range 101)
+             :y (seq [x :range [0 100]] (math/cos (* x 0.2)))
+             :z (seq [x :range [0 100]] (math/sin (* x 0.2)))}
+      :line-style line-style
+      :color-map {:y blue :z red}
+      :super-sample 4
+      :transpose true
+      :bar-padding 2
+      :width 500
+      :height 500))
+  (check-image c (string "horizontal_" line-style "_chart.png")))
+
+(test-horizontal-chart :area)
+(test-horizontal-chart :bar)
+(test-horizontal-chart :stroke)
+
 (end-suite)
