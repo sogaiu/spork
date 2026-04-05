@@ -64,130 +64,130 @@
 (pm-config/read-env-variables root-env)
 (put root-env :build-dir nil) # jpm test sets this and it messes things up
 (defer (sh/rm "tmp/pm")
-       (put root-env *syspath* (bundle-rpath syspath))
-       (put root-env :binpath (string syspath "/bin"))
-       (put root-env :manpath (string syspath "/man"))
-       (unless (os/getenv "VERBOSE")
-         (setdyn *out* @""))
-       (assert (empty? (bundle/list)) "initial bundle/list")
-       (assert (empty? (bundle/topolist)) "initial bundle/topolist")
+  (put root-env *syspath* (bundle-rpath syspath))
+  (put root-env :binpath (string syspath "/bin"))
+  (put root-env :manpath (string syspath "/man"))
+  (unless (os/getenv "VERBOSE")
+    (setdyn *out* @""))
+  (assert (empty? (bundle/list)) "initial bundle/list")
+  (assert (empty? (bundle/topolist)) "initial bundle/topolist")
 
-       # install spork
-       (pm/pm-install "file::.")
-       (assert (= 1 (length (bundle/list))) "bundle/list after install")
+  # install spork
+  (pm/pm-install "file::.")
+  (assert (= 1 (length (bundle/list))) "bundle/list after install")
 
-       # invoking janet-pm via the shell needs JANET_PATH set to
-       # know about our custom syspath
-       (os/setenv "JANET_PATH" (dyn *syspath*))
+  # invoking janet-pm via the shell needs JANET_PATH set to
+  # know about our custom syspath
+  (os/setenv "JANET_PATH" (dyn *syspath*))
 
-       # make sure the right janet-pm is found and
-       (def binpath (path/join (dyn *syspath*) "bin"))
-       (def janet-pm (path/join binpath (string "janet-pm")))
-       (assert (sh/exists? janet-pm))
-       (dump-out (sh/exec-slurp-all (string janet-pm bat) "show-config"))
+  # make sure the right janet-pm is found and
+  (def binpath (path/join (dyn *syspath*) "bin"))
+  (def janet-pm (path/join binpath (string "janet-pm")))
+  (assert (sh/exists? janet-pm))
+  (dump-out (sh/exec-slurp-all (string janet-pm bat) "show-config"))
 
-       # check sub commands work, even without defining pre-/post-
+  # check sub commands work, even without defining pre-/post-
 
-       (os/cd "test-bundle")
-       (divider "Running janet-pm clean in a project that doesn't define pre-clean/post-clean")
-       (def empty-out (sh/exec-slurp-all (string janet-pm bat) "clean"))
-       (dump-out empty-out)
-       (assert (= 0 (count-match "error" (empty-out :err))))
+  (os/cd "test-bundle")
+  (divider "Running janet-pm clean in a project that doesn't define pre-clean/post-clean")
+  (def empty-out (sh/exec-slurp-all (string janet-pm bat) "clean"))
+  (dump-out empty-out)
+  (assert (= 0 (count-match "error" (empty-out :err))))
 
-       # run janet-pm commands and collect output
+  # run janet-pm commands and collect output
 
-       (os/cd "../test-project")
+  (os/cd "../test-project")
 
-       # clean up any remaining bits from previous runs
-       (sh/rm "./bundle")
+  # clean up any remaining bits from previous runs
+  (sh/rm "./bundle")
 
-       # check "build"
-       (divider "Running janet-pm build")
-       (def build-out (sh/exec-slurp-all (string janet-pm bat) "build"))
-       (dump-out build-out)
-       (assert (= 1 (count-match "** pre-build" (build-out :out))))
-       (assert (= 1 (count-match "** post-build" (build-out :out))))
-       (assert (= 0 (count-match "** pre-install" (build-out :out))))
+  # check "build"
+  (divider "Running janet-pm build")
+  (def build-out (sh/exec-slurp-all (string janet-pm bat) "build"))
+  (dump-out build-out)
+  (assert (= 1 (count-match "** pre-build" (build-out :out))))
+  (assert (= 1 (count-match "** post-build" (build-out :out))))
+  (assert (= 0 (count-match "** pre-install" (build-out :out))))
 
-       # check "install"
-       (divider "Running janet-pm install")
-       (def install-out (sh/exec-slurp-all (string janet-pm bat) "install"))
-       (dump-out install-out)
-       # verify proper entries only occur once
-       (assert (= 1 (count-match "** pre-build" (install-out :out))))
-       (assert (= 1 (count-match "** post-build" (install-out :out))))
-       (assert (= 1 (count-match "** pre-install" (install-out :out))))
-       (assert (= 1 (count-match "** post-install" (install-out :out))))
-       (assert (= 0 (count-match "** pre-check" (install-out :out))))
-       (assert (= 0 (count-match "** post-check" (install-out :out))))
+  # check "install"
+  (divider "Running janet-pm install")
+  (def install-out (sh/exec-slurp-all (string janet-pm bat) "install"))
+  (dump-out install-out)
+  # verify proper entries only occur once
+  (assert (= 1 (count-match "** pre-build" (install-out :out))))
+  (assert (= 1 (count-match "** post-build" (install-out :out))))
+  (assert (= 1 (count-match "** pre-install" (install-out :out))))
+  (assert (= 1 (count-match "** post-install" (install-out :out))))
+  (assert (= 0 (count-match "** pre-check" (install-out :out))))
+  (assert (= 0 (count-match "** post-check" (install-out :out))))
 
-       # verify order of entries
-       (assert (after? "post-build" "pre-build" (install-out :out)))
-       (assert (after? "pre-install" "post-build" (install-out :out)))
-       (assert (after? "post-install" "pre-install" (install-out :out)))
+  # verify order of entries
+  (assert (after? "post-build" "pre-build" (install-out :out)))
+  (assert (after? "pre-install" "post-build" (install-out :out)))
+  (assert (after? "post-install" "pre-install" (install-out :out)))
 
-       # check that syspath is correctly set inside a main in a binscript
-       (def bin-with-main (path/join binpath (string "bin-with-main")))
-       (def bin-out (sh/exec-slurp-all (string bin-with-main bat)))
-       (dump-out bin-out)
-       (assert (string/find (path/basename (dyn *syspath*)) (bin-out :out)))
+  # check that syspath is correctly set inside a main in a binscript
+  (def bin-with-main (path/join binpath (string "bin-with-main")))
+  (def bin-out (sh/exec-slurp-all (string bin-with-main bat)))
+  (dump-out bin-out)
+  (assert (string/find (path/basename (dyn *syspath*)) (bin-out :out)))
 
-       # check "test"
-       (divider "Running janet-pm test")
-       (def test-out (sh/exec-slurp-all (string janet-pm bat) "test"))
-       (dump-out test-out)
-       # verify proper entries only occur once
-       (assert (= 1 (count-match "** pre-build" (test-out :out))))
-       (assert (= 1 (count-match "** post-build" (test-out :out))))
-       (assert (= 0 (count-match "** pre-install" (test-out :out))))
-       (assert (= 0 (count-match "** post-install" (test-out :out))))
-       (assert (= 1 (count-match "** pre-check" (test-out :out))))
-       (assert (= 1 (count-match "** post-check" (test-out :out))))
-       (assert (= 1 (count-match "running test" (test-out :out))))
+  # check "test"
+  (divider "Running janet-pm test")
+  (def test-out (sh/exec-slurp-all (string janet-pm bat) "test"))
+  (dump-out test-out)
+  # verify proper entries only occur once
+  (assert (= 1 (count-match "** pre-build" (test-out :out))))
+  (assert (= 1 (count-match "** post-build" (test-out :out))))
+  (assert (= 0 (count-match "** pre-install" (test-out :out))))
+  (assert (= 0 (count-match "** post-install" (test-out :out))))
+  (assert (= 1 (count-match "** pre-check" (test-out :out))))
+  (assert (= 1 (count-match "** post-check" (test-out :out))))
+  (assert (= 1 (count-match "running test" (test-out :out))))
 
-       # verify order of entries
-       (assert (after? "post-build" "pre-build" (test-out :out)))
-       (assert (after? "pre-check" "post-build" (test-out :out)))
-       (assert (after? "running test" "pre-check" (test-out :out)))
-       (assert (after? "post-check" "running test" (test-out :out)))
+  # verify order of entries
+  (assert (after? "post-build" "pre-build" (test-out :out)))
+  (assert (after? "pre-check" "post-build" (test-out :out)))
+  (assert (after? "running test" "pre-check" (test-out :out)))
+  (assert (after? "post-check" "running test" (test-out :out)))
 
-        # check "clean"
-       (divider "Running janet-pm clean")
-       (def clean-out (sh/exec-slurp-all (string janet-pm bat) "clean"))
-       (dump-out clean-out)
-       # verify proper entries only occur once
-       (assert (= 1 (count-match "** pre-clean" (clean-out :out))))
-       (assert (= 1 (count-match "removing directory _build" (clean-out :out))))
-       (assert (= 1 (count-match "** post-clean" (clean-out :out))))
-       (assert (= 0 (count-match "** pre-build" (clean-out :out))))
-       (assert (= 0 (count-match "** post-build" (clean-out :out))))
-       (assert (= 0 (count-match "** pre-install" (clean-out :out))))
-       (assert (= 0 (count-match "** post-install" (clean-out :out))))
-       (assert (= 0 (count-match "** pre-check" (clean-out :out))))
-       (assert (= 0 (count-match "** post-check" (clean-out :out))))
+  # check "clean"
+  (divider "Running janet-pm clean")
+  (def clean-out (sh/exec-slurp-all (string janet-pm bat) "clean"))
+  (dump-out clean-out)
+  # verify proper entries only occur once
+  (assert (= 1 (count-match "** pre-clean" (clean-out :out))))
+  (assert (= 1 (count-match "removing directory _build" (clean-out :out))))
+  (assert (= 1 (count-match "** post-clean" (clean-out :out))))
+  (assert (= 0 (count-match "** pre-build" (clean-out :out))))
+  (assert (= 0 (count-match "** post-build" (clean-out :out))))
+  (assert (= 0 (count-match "** pre-install" (clean-out :out))))
+  (assert (= 0 (count-match "** post-install" (clean-out :out))))
+  (assert (= 0 (count-match "** pre-check" (clean-out :out))))
+  (assert (= 0 (count-match "** post-check" (clean-out :out))))
 
-       # verify order of entries
-       (assert (after? "removing directory" "pre-clean" (clean-out :out)))
-       (assert (after? "post-clean" "removing directory" (clean-out :out)))
+  # verify order of entries
+  (assert (after? "removing directory" "pre-clean" (clean-out :out)))
+  (assert (after? "post-clean" "removing directory" (clean-out :out)))
 
-        # check "clean-all"
-       (divider "Running janet-pm clean-all")
-       (def clean-all-out (sh/exec-slurp-all (string janet-pm bat) "clean-all"))
-       (dump-out clean-all-out)
-       # verify proper entries only occur once
-       (assert (= 1 (count-match "** pre-clean" (clean-all-out :out))))
-       (assert (= 1 (count-match "removing directory _build" (clean-all-out :out))))
-       (assert (= 1 (count-match "** post-clean" (clean-all-out :out))))
-       (assert (= 0 (count-match "** pre-build" (clean-all-out :out))))
-       (assert (= 0 (count-match "** post-build" (clean-all-out :out))))
-       (assert (= 0 (count-match "** pre-install" (clean-all-out :out))))
-       (assert (= 0 (count-match "** post-install" (clean-all-out :out))))
-       (assert (= 0 (count-match "** pre-check" (clean-all-out :out))))
-       (assert (= 0 (count-match "** post-check" (clean-all-out :out))))
+  # check "clean-all"
+  (divider "Running janet-pm clean-all")
+  (def clean-all-out (sh/exec-slurp-all (string janet-pm bat) "clean-all"))
+  (dump-out clean-all-out)
+  # verify proper entries only occur once
+  (assert (= 1 (count-match "** pre-clean" (clean-all-out :out))))
+  (assert (= 1 (count-match "removing directory _build" (clean-all-out :out))))
+  (assert (= 1 (count-match "** post-clean" (clean-all-out :out))))
+  (assert (= 0 (count-match "** pre-build" (clean-all-out :out))))
+  (assert (= 0 (count-match "** post-build" (clean-all-out :out))))
+  (assert (= 0 (count-match "** pre-install" (clean-all-out :out))))
+  (assert (= 0 (count-match "** post-install" (clean-all-out :out))))
+  (assert (= 0 (count-match "** pre-check" (clean-all-out :out))))
+  (assert (= 0 (count-match "** post-check" (clean-all-out :out))))
 
-       # verify order of entries
-       (assert (after? "removing directory" "pre-clean" (clean-all-out :out)))
-       (assert (after? "post-clean" "removing directory" (clean-all-out :out))))
+  # verify order of entries
+  (assert (after? "removing directory" "pre-clean" (clean-all-out :out)))
+  (assert (after? "post-clean" "removing directory" (clean-all-out :out))))
 
 # reset *out* so we can see # tests passed even if VERBOSE is not defined
 (setdyn *out* nil)

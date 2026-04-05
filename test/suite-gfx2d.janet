@@ -32,8 +32,8 @@
   (os/mkdir "tmp")
   (save tmppath img)
   (when (or (os/getenv "GOLD")
-          (os/getenv (string "GOLD_" (first (string/split "." file-name))))
-          (not (os/stat fullpath :mode)))
+            (os/getenv (string "GOLD_" (first (string/split "." file-name))))
+            (not (os/stat fullpath :mode)))
     (print "Saving gold image " fullpath)
     (save fullpath img)
     (break))
@@ -166,9 +166,9 @@
   (def canvas (blank 65 65 4))
   (def points
     [0 32
-    32 0
-    64 32
-    32 64])
+     32 0
+     64 32
+     32 64])
   (fill-path canvas points cyan)
   (check-image canvas "path_fill_1.png"))
 
@@ -200,14 +200,14 @@
   (def canvas (blank 65 65 4))
   (def points
     [0 32
-    32 0
-    64 32
-    50 64
-    # concave part
-    40 63
-    20 63
-    #
-    14 64])
+     32 0
+     64 32
+     50 64
+     # concave part
+     40 63
+     20 63
+     #
+     14 64])
   (fill-path canvas points cyan)
   (check-image canvas "concave_fill_1.png"))
 
@@ -249,8 +249,7 @@
   (def control-points [10 10
                        (+ width 110) 10
                        -90 (- height 10)
-                       (- width 10) (- height 10)
-                       ])
+                       (- width 10) (- height 10)])
   (def points (map math/round (bezier-path control-points 0.001)))
   (fill-path canvas points yellow)
   (stroke-path canvas points green 4.5 true)

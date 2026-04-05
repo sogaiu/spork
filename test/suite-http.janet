@@ -95,7 +95,7 @@
   (:close w)
   (assert
     (deep= (:read r :all)
-      (buffer "HTTP/1.1 200 OK\r\nSet-Cookie: type=biscotti\r\nSet-Cookie: flavor=chocolate\r\nContent-Length: 6\r\n\r\nHello!"))
+           (buffer "HTTP/1.1 200 OK\r\nSet-Cookie: type=biscotti\r\nSet-Cookie: flavor=chocolate\r\nContent-Length: 6\r\n\r\nHello!"))
     "write-head: duplicate headers"))
 
 (defn- chunk
@@ -108,12 +108,12 @@
   (:close w)
   (assert
     (deep= (:read r :all)
-      (buffer
-        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
-        (chunk "a")
-        (chunk (string/repeat "a" 16))
-        (chunk (string/repeat "a" 256))
-        (chunk "")))
+           (buffer
+             "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+             (chunk "a")
+             (chunk (string/repeat "a" 16))
+             (chunk (string/repeat "a" 256))
+             (chunk "")))
     "write-body: chunked encoding"))
 
 (with [[r w] (os/pipe) close-both]
@@ -123,9 +123,9 @@
   (:close w)
   (assert
     (deep= (buffer (string/repeat "a" (+ 1 16 256)))
-      (http/read-body @{:buffer (buffer/new 0)
-                        :connection r
-                        :headers {"transfer-encoding" "chunked"}}))
+           (http/read-body @{:buffer (buffer/new 0)
+                             :connection r
+                             :headers {"transfer-encoding" "chunked"}}))
     "read-body: chunked encoding, basic"))
 
 # Chunked encoding across packet boundaries: unusual but not impossible.

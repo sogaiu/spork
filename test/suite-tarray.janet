@@ -11,28 +11,28 @@
   (pp a))
 
 (assert-no-error
- "create some typed arrays"
- (do
-   (def a (tarray/new :float64 10))
-   (def b (tarray/new :float64 5 2 0 a))
-   (def c (tarray/new :uint32 20))))
+  "create some typed arrays"
+  (do
+    (def a (tarray/new :float64 10))
+    (def b (tarray/new :float64 5 2 0 a))
+    (def c (tarray/new :uint32 20))))
 
 (assert-no-error
- "create some typed arrays from a buffer"
- (do
-   (def buf (tarray/buffer (+ 64 (* (+ 1 (* (- 10 1) 2)) 8))))
-   (def b (tarray/new :float64 10 2 64 buf))))
+  "create some typed arrays from a buffer"
+  (do
+    (def buf (tarray/buffer (+ 64 (* (+ 1 (* (- 10 1) 2)) 8))))
+    (def b (tarray/new :float64 10 2 64 buf))))
 
 (def a (tarray/new :float64 10))
 (def b (tarray/new :float64 5 2 0 a))
 
 (assert-no-error
- "fill tarray"
- (for i 0 (tarray/length a)
-      (set (a i) i)))
+  "fill tarray"
+  (for i 0 (tarray/length a)
+    (set (a i) i)))
 
 (assert (= (tarray/buffer a) (tarray/buffer b)) "tarray views pointing same buffer")
-(assert (= (a 2) (b 1) ) "tarray views pointing same buffer")
+(assert (= (a 2) (b 1)) "tarray views pointing same buffer")
 (assert (= ((tarray/slice b) 3) (b 3) (a 6) 6) "tarray slice")
 (assert (= ((tarray/slice b 1) 2) (b 3) (a 6) 6) "tarray slice")
 (assert (= (:length a) (length a)) "length method and function")
@@ -61,11 +61,10 @@
           (set (t 3) (t 0))
           (set (t 4) (u64 1000))
           (and
-           (= (t 0) (t 1))
-           (= (t 1) (t 2))
-           (= (t 2) (t 3))
-           (= (t 3) (t 4))
-           ))
+            (= (t 0) (t 1))
+            (= (t 1) (t 2))
+            (= (t 2) (t 3))
+            (= (t 3) (t 4))))
         "int64 typed arrays")
 
 # Janet Issue #142
@@ -98,10 +97,10 @@
 (assert (approx-eq 0.274348 (sample-standard-deviation arr) 0.000001) "sample-standard-deviation")
 (assert (approx-eq 0.272973 (standard-deviation arr) 0.000001) "standard-deviation")
 (assert (let [[i a] (extent arr)]
-           (and (approx-eq i 0.00746957 0.000001) (approx-eq a 0.973551 0.000001)))  "extent")
+          (and (approx-eq i 0.00746957 0.000001) (approx-eq a 0.973551 0.000001))) "extent")
 (assert (approx-eq 48.7728 (sum-compensated arr) 0.000001) "sum-compensated")
 (assert (approx-eq 0.558921 (root-mean-square arr) 0.000001) "root-mean-square")
-(assert (approx-eq -0.124152 (sample-skewness  arr) 0.00001) "sample-skewness ")
+(assert (approx-eq -0.124152 (sample-skewness arr) 0.00001) "sample-skewness ")
 (assert (approx-eq 0.0745142 (variance arr) 0.000001) "variance")
 (assert (approx-eq 0.0752669 (sample-variance arr) 0.000001) "sample-variance")
 (assert (approx-eq 0.520372 (median arr) 0.000001) "median")
@@ -127,4 +126,3 @@
 (assert-no-error (permutation-test arr array2) "permutation-test array")
 
 (end-suite)
-

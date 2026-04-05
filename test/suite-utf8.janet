@@ -8,18 +8,18 @@
 ###
 
 (eachp [enc dec]
-       {"a" (chr "a")
-        "á" 0xE1
-        "ა" 0x10D0
-        "𐊀" 0x10280}
+  {"a" (chr "a")
+   "á" 0xE1
+   "ა" 0x10D0
+   "𐊀" 0x10280}
   (assert (= [dec (length enc)] (utf8/decode-rune enc))
           (string/format "utf8: decode (U+%X)" dec)))
 
 (each inv
-      ["\x81" # stray continuation
-       "\xf0\x90\x8a" "\xf0\x90\x8a" "\xf0\x90" "\xf0" # truncated forward
-       "\x90\x8a\x80" "\x8a\x80" "\x80" # truncated backward
-       "\xfe" "\xff"] # invalid
+  ["\x81" # stray continuation
+   "\xf0\x90\x8a" "\xf0\x90\x8a" "\xf0\x90" "\xf0" # truncated forward
+   "\x90\x8a\x80" "\x8a\x80" "\x80" # truncated backward
+   "\xfe" "\xff"] # invalid
   (assert (= [nil 0] (utf8/decode-rune inv))
           (string/format "utf8: decode invalid (%q)" inv)))
 
@@ -34,10 +34,10 @@
     (array/push iter ch))
   iter)
 (eachp [utf8 codepoints]
-       {"ķēķī" @[0x137 0x113 0x137 0x12B]
-        "チェリー" @[0x30C1 0x30A7 0x30EA 0x30FC]
-        "🤣😜🐕" @[0x1F923 0x1F61C 0x1F415]
-        "あaá🇦" @[0x3042 0x61 0xE1 0x1F1E6]}
+  {"ķēķī" @[0x137 0x113 0x137 0x12B]
+   "チェリー" @[0x30C1 0x30A7 0x30EA 0x30FC]
+   "🤣😜🐕" @[0x1F923 0x1F61C 0x1F415]
+   "あaá🇦" @[0x3042 0x61 0xE1 0x1F1E6]}
   (assert (deep= codepoints (decode-iterate utf8))
           (string/format "utf8: decode iterate (%q)" codepoints)))
 
@@ -51,12 +51,12 @@
 ###
 
 (eachp [prefix len]
-       {0x7F 1
-        0x80 1 # invalid (truncated)
-        0xDF 2
-        0xEF 3
-        0xF7 4
-        0xFB 1} # invalid (too long)
+  {0x7F 1
+   0x80 1 # invalid (truncated)
+   0xDF 2
+   0xEF 3
+   0xF7 4
+   0xFB 1} # invalid (too long)
   (assert (= len (utf8/prefix->width prefix))
           (string/format "utf8: prefix->width (%X)" prefix)))
 
