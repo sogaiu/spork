@@ -44,6 +44,8 @@
 # normalize
 
 (aeq (path/posix/normalize "/abc/../") "/")
+(aeq (path/posix/normalize "/abc/../../def") "/def")
+(aeq (path/posix/normalize "/../../..") "/")
 (aeq (path/posix/normalize "/abc/abc") "/abc/abc")
 (aeq (path/posix/normalize "/abc/abc/..") "/abc")
 (aeq (path/posix/normalize "/abc/abc/../") "/abc/")
@@ -53,6 +55,8 @@
 (aeq (path/posix/normalize "//////") "/")
 
 (aeq (path/win32/normalize `C:\abc\..\`) `C:\`)
+(aeq (path/win32/normalize `C:\abc\..\..\def`) `C:\def`)
+(aeq (path/win32/normalize `C:\..\..\..`) `C:\`)
 (aeq (path/win32/normalize `C:\abc\abc`) `C:\abc\abc`)
 (aeq (path/win32/normalize `C:\abc\abc\..`) `C:\abc`)
 (aeq (path/win32/normalize `C:\abc\abc\..\`) `C:\abc\`)
