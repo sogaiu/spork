@@ -254,7 +254,8 @@
   (setdyn *background-color* g/black)
   (setdyn *grid-color* (g/rgb 0.3 0.3 0.3))
   (setdyn *stroke-color* g/white)
-  (setdyn *text-color* g/white))
+  (setdyn *text-color* g/white)
+  nil)
 
 (defn light-mode
   ```
@@ -264,7 +265,8 @@
   (setdyn *background-color* g/white)
   (setdyn *grid-color* (g/rgb 0.8 0.8 0.8))
   (setdyn *stroke-color* g/black)
-  (setdyn *text-color* g/black))
+  (setdyn *text-color* g/black)
+  nil)
 
 (defn- color-lerp-internal
   [a b t]
@@ -533,8 +535,10 @@
   * :y-prefix - if format-y not provided, allows easily adding a string prefix to y axis tick mark labels
   * :x-suffix - if format-x not provided, allows easily adding a string suffix to x axis tick mark labels
   * :y-suffix - if format-y not provided, allows easily adding a string suffix to y axis tick mark labels
-  * :x-ticks - Allow setting specific tick marks to be used marking the x axis rather than making a guess.
-  * :y-ticks - Allow setting specific tick marks to be used marking the y axis rather than making a guess.
+  * :x-ticks - An array of x coordinates used marking the x axis rather than making a guess. These will be labeled.
+  * :y-ticks - An array of y coordinates used marking the x axis rather than making a guess. These will be labeled.
+  * :x-grid-ticks - An array of x coordinates that are used for drawing a grid. Can be combined with x-ticks for separate labels and grid-line locations.
+  * :y-grid-ticks - An array of y coordinates that are used for drawing a grid. Can be combined with y-ticks for separate labels and grid-line locations.
   * :x-minor-ticks - How many minor tick marks, if any, to place between major tick marks on the x axis
   * :y-minor-ticks - How many minor tick marks, if any, to place between major tick marks on the y axis
   * :x-labels-vertical - Turn x labels vertical so more can fit on the axis
@@ -542,6 +546,8 @@
   * :min-y-spacing - When guessing y ticks, allow setting a lower limit to the metric spacing between ticks
   * :tick-length - how many pixels long to make major tick marks (minor tick marks are 1/2 major tick marks)
   * :transpose - Consider the x axis to be the vertical axis instead of the horizontal axis
+  * :grid-between-x - Put grid-lines between X-axis labels on the x-axis instead of on them.
+  * :grid-between-y - Put grid-lines between X-axis labels on the y-axis instead of on them.
 
   Returns a 4-tuple [view:gfx2d/Image to-pixel-space:fn to-metric-space:fn outer-canvas:gfx2d/Image]
 
@@ -556,7 +562,8 @@
    grid format-x format-y
    x-label y-label tick-length
    x-suffix x-prefix y-suffix y-prefix
-   x-ticks y-ticks
+   x-ticks y-ticks x-grid-ticks y-grid-ticks
+   grid-between-x grid-between-y
    x-minor-ticks y-minor-ticks x-labels-vertical transpose]
 
   (def [canvas width height] :shadow (canvas-and-dimensions canvas width height))
@@ -589,13 +596,14 @@
   (def font-half-height (div font-height 2))
   (default tick-length (div font-height 3))
   (def has-grid (not= grid :none))
+  (def has-ticks (not has-grid))
   (def stipple-cycle (if (= grid :stipple) 8 0))
   (def stipple-on 4)
   (def tick-height (if has-grid 10 (+ tick-length 3)))
   (def tick-trim (if has-grid 0 (- tick-height tick-length)))
 
   # Initial guess for x label width
-  (def [_xticks _xformat x-labels-width x-labels-height]
+  (def [first-guess-xticks _xformat x-labels-width x-labels-height]
     (if x-ticks
       (do
         (def fmt (if format-x format-x string))
@@ -633,7 +641,6 @@
   # Calculate left and right padding once y-axis is guessed
   (def outer-left-padding (+ padding y-axis-tick-label-width (if y-label (+ padding font-height) 0)))
   (def outer-right-padding outer-left-padding) # make it symmetrical, looks much nicer
-  #(def outer-right-padding (+ 2 padding)) # fills the space better - add centering option?
   (def left-padding (+ outer-left-padding tick-height))
   (def right-padding outer-right-padding)
 
@@ -641,6 +648,24 @@
   (when y-label
     (def [w _h] (text-measure y-label font 1))
     (text-draw canvas padding (div (+ height w top-padding (- bottom-padding)) 2) y-label line-color font 1 1))
+
+  # Add buffers for min/max with grid-between-{x,y}.
+  (def x-bound-pad # in pixel space
+    (if grid-between-x
+      (let [xt (or x-ticks [0])
+            len (max 1 (length xt))]
+        (/ (- (max-of xt) (min-of xt)) (* 2 len)))
+      0))
+  (def orig-dx :shadow (+ orig-dx x-bound-pad x-bound-pad))
+  (def x-min :shadow (- x-min x-bound-pad))
+  (def y-bound-pad # in pixel space
+    (if grid-between-y
+      (let [yt (or y-ticks [0])
+            len (max 1 (length yt))]
+        (/ (- (max-of yt) (min-of yt)) (* 2 len)))
+      0))
+  (def orig-dy :shadow (+ orig-dy y-bound-pad y-bound-pad))
+  (def y-min :shadow (- y-min y-bound-pad))
 
   # Closure to convert metric space to pixel space - only can be done after full padding calculations
   (def scale-x (/ (- width left-padding right-padding inner-padding-x inner-padding-x) orig-dx))
@@ -652,19 +677,51 @@
     [(+ offset-x (* scale-x metric-x))
      (+ offset-y (* scale-y metric-y))])
 
-  # TODO - replace tick mark draw calls to g/plot with g/fill-rect to allow for thicker ticks
+  # Create a cropped view inside our "Frame" that can then be used for rendering charts
+  # Use this view when drawing gridlines inside charts to match rounding errors when rendering charts.
+  (def frame-width (- width left-padding right-padding 1))
+  (def frame-height (- height top-padding bottom-padding 1))
+  (def view (g/viewport canvas
+                        (+ 1 left-padding) (+ 1 top-padding)
+                        frame-width frame-height))
+  (def frame-scale-x (/ (- frame-width 1 inner-padding-x inner-padding-x) orig-dx))
+  (def frame-scale-y (- (/ (- frame-height 1 inner-padding-y inner-padding-y) orig-dy)))
+  (def frame-offset-x (- inner-padding-x (* frame-scale-x x-min)))
+  (def frame-offset-y (- frame-height 1 inner-padding-y (* frame-scale-y y-min)))
+  (defn view-convert
+    [metric-x metric-y]
+    [(+ frame-offset-x (* frame-scale-x metric-x))
+     (+ frame-offset-y (* frame-scale-y metric-y))])
+  (defn view-unconvert
+    [pixel-x pixel-y]
+    [(/ (- pixel-x frame-offset-x) frame-scale-x)
+     (/ (- pixel-y frame-offset-y) frame-scale-y)])
 
-  # Draw vertical axis
+  # Draw Y-axis labsl
   (assert yticks "unable to generate y ticks. Make your chart bigger?")
   (each metric-y yticks
     (def [_ pixel-y] (convert 0 metric-y))
     (def rounded-pixel-y (math/round pixel-y))
     (def text (yformat metric-y))
     (def [text-width] (text-measure text font 1))
-    (text-draw canvas (- outer-left-padding text-width) (- rounded-pixel-y font-half-height) text line-color font 1)
-    (if has-grid
-      (g/plot canvas left-padding rounded-pixel-y (- width right-padding) rounded-pixel-y grid-color stipple-cycle stipple-on)
+    (text-draw canvas (- outer-left-padding text-width) (- rounded-pixel-y font-half-height) text line-color font 1))
+
+  # Draw Y-axis grid lines and/or tick marks
+  (default y-grid-ticks
+    (if grid-between-y
+      (seq [i :range [0 (dec (length yticks))]]
+        (mean (slice yticks i (+ i 2))))
+      yticks))
+  (when has-ticks # in enclosing canvas
+    (each metric-y y-grid-ticks
+      (def [_ pixel-y] (convert 0 metric-y))
+      (def rounded-pixel-y (math/round pixel-y))
       (g/plot canvas (+ tick-trim outer-left-padding) rounded-pixel-y (+ outer-left-padding tick-height) rounded-pixel-y grid-color)))
+  (when has-grid # in chart view
+    (each metric-y y-grid-ticks
+      (def [_ pixel-y] (view-convert 0 metric-y))
+      (def rounded-pixel-y (math/round pixel-y))
+      (g/plot view 0 rounded-pixel-y frame-width rounded-pixel-y grid-color stipple-cycle stipple-on)))
 
   # Draw horizontal axis - allow manual override for x tick marks
   (def [xticks xformat]
@@ -678,18 +735,32 @@
     (def [text-width text-height] (text-measure text font 1))
     (if x-labels-vertical
       (text-draw canvas (- rounded-pixel-x (* text-height 0.5)) (- height outer-bottom-padding (- text-width)) text line-color font 1 1)
-      (text-draw canvas (- rounded-pixel-x (* text-width 0.5)) (- height outer-bottom-padding) text line-color font 1))
-    (if has-grid
-      (g/plot canvas rounded-pixel-x top-padding rounded-pixel-x (- height bottom-padding) grid-color stipple-cycle stipple-on)
+      (text-draw canvas (- rounded-pixel-x (* text-width 0.5)) (- height outer-bottom-padding) text line-color font 1)))
+
+  # Draw x-axis grid ticks or grid lines
+  (default x-grid-ticks
+    (if grid-between-x
+      (seq [i :range [0 (dec (length xticks))]]
+        (mean (slice xticks i (+ i 2))))
+      xticks))
+  (when has-ticks
+    (each metric-x x-grid-ticks
+      (def [pixel-x _] (convert metric-x 0))
+      (def rounded-pixel-x (math/round pixel-x))
       (g/plot canvas rounded-pixel-x (- height outer-bottom-padding tick-trim) rounded-pixel-x (- height outer-bottom-padding tick-height) grid-color)))
+  (when has-grid
+    (each metric-x x-grid-ticks
+      (def [pixel-x _] (view-convert metric-x 0))
+      (def rounded-pixel-x (math/round pixel-x))
+      (g/plot view rounded-pixel-x 0 rounded-pixel-x frame-height grid-color stipple-cycle stipple-on)))
 
   # Draw minor horizontal axis tick marks
-  (when (and x-minor-ticks (< 1 (length xticks)))
-    (def len (length xticks))
-    (def dx-first (- (in xticks 1) (in xticks 0)))
-    (def dx-last (- (in xticks (- len 1)) (in xticks (- len 2))))
+  (when (and x-minor-ticks (< 1 (length x-grid-ticks)))
+    (def len (length x-grid-ticks))
+    (def dx-first (- (in x-grid-ticks 1) (in x-grid-ticks 0)))
+    (def dx-last (- (in x-grid-ticks (- len 1)) (in x-grid-ticks (- len 2))))
     # we must draw minor ticks before and after the first and last major ticks until the edge of the axis
-    (def padded-ticks [(- (in xticks 0) dx-first) ;xticks (+ (in xticks (- len 1)) dx-last)])
+    (def padded-ticks [(- (in x-grid-ticks 0) dx-first) ;x-grid-ticks (+ (in x-grid-ticks (- len 1)) dx-last)])
     (loop [j :range [1 (length padded-ticks)]
            :let [i (- j 1)
                  t0x (in padded-ticks i)
@@ -701,12 +772,12 @@
       (g/plot canvas x (- height outer-bottom-padding tick-height) x (- height outer-bottom-padding (div tick-height 2)) grid-color)))
 
   # Draw minor vertical axis tick marks
-  (when (and y-minor-ticks (< 1 (length yticks)))
-    (def len (length yticks))
-    (def dy-first (- (in yticks 1) (in yticks 0)))
-    (def dy-last (- (in yticks (- len 1)) (in yticks (- len 2))))
+  (when (and y-minor-ticks (< 1 (length y-grid-ticks)))
+    (def len (length y-grid-ticks))
+    (def dy-first (- (in y-grid-ticks 1) (in y-grid-ticks 0)))
+    (def dy-last (- (in y-grid-ticks (- len 1)) (in y-grid-ticks (- len 2))))
     # we must draw minor ticks before and after the first and last major ticks until the edge of the axis
-    (def padded-ticks [(- (in yticks 0) dy-first) ;yticks (+ (in yticks (- len 1)) dy-last)])
+    (def padded-ticks [(- (in y-grid-ticks 0) dy-first) ;y-grid-ticks (+ (in y-grid-ticks (- len 1)) dy-last)])
     (loop [j :range [1 (length padded-ticks)]
            :let [i (- j 1)
                  t0y (in padded-ticks i)
@@ -719,25 +790,6 @@
 
   # Draw frame
   (draw-frame canvas left-padding top-padding (- width right-padding) (- height bottom-padding) grid-color 2)
-
-  # Create a cropped view inside our "Frame" that can then be used for rendering charts
-  (def frame-width (- width left-padding right-padding))
-  (def frame-height (- height top-padding bottom-padding))
-  (def view (g/viewport canvas
-                        (+ 1 left-padding) (+ 1 top-padding)
-                        (- frame-width 1) (- frame-height 1)))
-  (def frame-scale-x (/ (- frame-width inner-padding-x inner-padding-x) orig-dx))
-  (def frame-scale-y (- (/ (- frame-height inner-padding-y inner-padding-y) orig-dy)))
-  (def frame-offset-x (- inner-padding-x (* frame-scale-x x-min)))
-  (def frame-offset-y (- frame-height -1 inner-padding-y (* frame-scale-y y-min)))
-  (defn view-convert
-    [metric-x metric-y]
-    [(+ frame-offset-x (* frame-scale-x metric-x))
-     (+ frame-offset-y (* frame-scale-y metric-y))])
-  (defn view-unconvert
-    [pixel-x pixel-y]
-    [(/ (- pixel-x frame-offset-x) frame-scale-x)
-     (/ (- pixel-y frame-offset-y) frame-scale-y)])
 
   [view
    (if transpose (fn :convert [x y] (view-convert y x)) view-convert)
@@ -794,7 +846,7 @@
   (default color-map color-hash)
   (default line-style-per-column {})
   (default line-style :plot)
-  (default bar-padding 4)
+  (default bar-padding 5)
   (default point-radius 3)
   (default stroke-thickness 1.5)
   (default super-sample 1)
@@ -839,19 +891,23 @@
     (def ys (get data ycol))
 
     # Collect points - handle missing ys
+    # Conversion to integers should be done with math/round later if needed, not math/floor!
     (def pts @[])
+    (def metric-pts @[])
     (for i 0 (length xs)
       (def x (get xs i))
       (when x
         (def y (get ys i))
         (when y
+          (array/push metric-pts x y)
           (def [x1 y1] (to-pixel-space x y))
           (array/push pts x1 y1))))
 
     # Plot lines between points
     (def line-style2 (get line-style-per-column ycol line-style))
     (enum line-style2 :plot :stipple :stroke :bar :multi-bar :none :area)
-    (case line-style2
+    (def multi-bar (= line-style2 :multi-bar)) # multi-bar and bar share most of the same code
+    (case (if multi-bar :bar line-style2)
 
       :stipple
       (do
@@ -889,7 +945,7 @@
 
       :bar
       (do
-        (def [base-x base-y] (to-pixel-space 0 0))
+        (def [base-x base-y] (map math/round (to-pixel-space 0 0)))
         (def total-dx (math/abs (- (first pts) (get pts (- (length pts) 2)))))
         (def total-dy (math/abs (- (get pts 1) (last pts))))
         (def bar-spacing-x (/ total-dx (- (length pts) 2) 0.5))
@@ -900,42 +956,34 @@
           (def j (div i 2))
           (def x (get pts i))
           (def y (get pts (+ 1 i)))
+          (def xm (get metric-pts i))
+          (def ym (get metric-pts (+ 1 i)))
+          (def xr (math/round x))
+          (def yr (math/round y))
           (def color (x-colors (get xs j) (get ys j) j))
+          # Find the gridlines between bars precisely for nice spacing.
+          (def [x-pixel-gridline-after y-pixel-gridline-after]
+            (if-let [xm-next (get metric-pts (+ i 2))]
+              (to-pixel-space (mean [xm xm-next]) 0)
+              [(+ x (/ bar-spacing-x 2)) (- y (/ bar-spacing-y 2))]))
+          (def [x-pixel-gridline-before y-pixel-gridline-before]
+            (if-let [xm-prev (get metric-pts (- i 2))]
+              (to-pixel-space (mean [xm xm-prev]) 0)
+              [(- x (/ bar-spacing-x 2)) (+ y (/ bar-spacing-y 2))]))
+          (def n-sections (if multi-bar (length y-columns) 1))
           (if transpose
             (do
-              (def y1 (- y (/ bar-width-y 2)))
-              (def y2 (- (+ y bar-spacing-y) (/ (+ bar-spacing-y 2 bar-padding) 2)))
-              (g/fill-rect canvas base-x y1 (- x base-x) (- y2 y1) color))
+              (def y1 (math/round (+ y-pixel-gridline-after (math/floor (/ bar-padding 2)))))
+              (def y2 (math/round (- y-pixel-gridline-before (math/ceil (/ bar-padding 2)))))
+              (def w1 (math/round (+ y1 (/ (* series-index (- y2 y1)) n-sections))))
+              (def w2 (math/round (+ y1 (/ (* (+ 1 series-index) (- y2 y1)) n-sections))))
+              (g/fill-rect canvas base-x (+ 1 w1) (- xr base-x) (- w2 w1 1) color))
             (do
-              (def x1 (- x (/ bar-width-x 2)))
-              (def x2 (- (+ x bar-spacing-x) (/ (+ bar-spacing-x 2 bar-padding) 2)))
-              (g/fill-rect canvas x1 base-y (- x2 x1) (- y base-y) color)))))
-
-      :multi-bar
-      (do # TODO - deduplicate with :bar
-        (def [base-x base-y] (to-pixel-space 0 0))
-        (def total-dx (math/abs (- (first pts) (get pts (- (length pts) 2)))))
-        (def total-dy (math/abs (- (get pts 1) (last pts))))
-        (def bar-spacing-x (/ total-dx (- (length pts) 2) 0.5))
-        (def bar-spacing-y (/ total-dy (- (length pts) 2) 0.5))
-        (def bar-width-x (- bar-spacing-x bar-padding)) # normal bar-chart
-        (def bar-width-y (- bar-spacing-y bar-padding)) # transposed bar-chart
-        (loop [i :range [0 (length pts) 2]]
-          (def j (div i 2))
-          (def x (get pts i))
-          (def y (get pts (+ 1 i)))
-          (def color (x-colors (get xs j) (get ys j) j))
-          (if transpose
-            (do
-              (def y1 (- y (/ bar-width-y 2)))
-              (def y2 (- (+ y bar-spacing-y) (/ (+ bar-spacing-y 2 bar-padding) 2)))
-              (def width-part (/ (- y2 y1) (length y-columns)))
-              (g/fill-rect canvas base-x (+ y1 (* series-index width-part)) (- x base-x) width-part color))
-            (do
-              (def x1 (- x (/ bar-width-x 2)))
-              (def x2 (- (+ x bar-spacing-x) (/ (+ bar-spacing-x 2 bar-padding) 2)))
-              (def width-part (/ (- x2 x1) (length y-columns)))
-              (g/fill-rect canvas (+ x1 (* series-index width-part)) base-y width-part (- y base-y) color)))))
+              (def x1 (math/round (+ x-pixel-gridline-before (math/floor (/ bar-padding 2)))))
+              (def x2 (math/round (- x-pixel-gridline-after (math/ceil (/ bar-padding 2)))))
+              (def w1 (math/round (+ x1 (/ (* series-index (- x2 x1)) n-sections))))
+              (def w2 (math/round (+ x1 (/ (* (+ 1 series-index) (- x2 x1)) n-sections))))
+              (g/fill-rect canvas (+ 1 w1) base-y (- w2 w1 1) (- yr base-y) color)))))
 
       :none nil)
 
@@ -983,10 +1031,16 @@
   * :y-suffix - add a string suffix to each tick label on the x-axis
   * :x-prefix - add a string prefix to each tick label on the y-axis
   * :y-prefix - add a string prefix to each tick label on the y-axis
+  * :x-ticks - Array of labeled x-coordinate locations.
+  * :y-ticks - Array of labeled y-coordinate locations.
+  * :x-grid-ticks - Array of x-coordinates for grid lines.
+  * :y-grid-ticks - Array of y-coordinates for grid lines.
   * :x-minor-ticks - how many, if any, small ticks to add between each large tick mark on the x axis
   * :y-minor-ticks - how many, if any, small ticks to add between each large tick mark on the y axis
   * :x-labels-vertical - Turn x labels vertical so more can fit on the axis
   * :tick-length - how long to make major tick marks
+  * :grid-between-x - Put grid-lines between X-axis labels on the x-axis instead of on them.
+  * :grid-between-y - Put grid-lines between X-axis labels on the y-axis instead of on them.
 
   Chart Styling
   * :padding - the number of pixels of white space around various elements of the chart
@@ -996,6 +1050,7 @@
   * :scatter - set to true to disable lines connecting points
   * :legend - set to true to add a legend to the top of the chart
   * :legend-map - a dictionary mapping column names to pretty text for the chart
+  * :legend-padding - extra padding around legend area
   * :point-radius - radius of points when drawing a scatter plot
   * :line-style - How to draw lines. Can be one of :stroke, :plot, :none, :bar, :area, or :stipple. Default is :plot.
   * :line-style-per-column - Optional dictionary to override line style by y-column name.
@@ -1018,14 +1073,16 @@
    scatter grid legend super-sample stroke-thickness
    format-x format-y
    save-as
-   legend-map
+   legend-map legend-padding
    tick-length
    line-style line-style-per-column bar-padding
    x-label y-label
    x-suffix x-prefix y-suffix y-prefix
    x-column y-column
    x-ticks y-ticks x-minor-ticks y-minor-ticks
+   x-grid-ticks y-grid-ticks
    x-labels-vertical
+   grid-between-x grid-between-y
    transpose]
 
   # Check parameters and set defaults.
@@ -1043,6 +1100,21 @@
   (default grid :none)
   (default line-style :plot)
   (default legend :none)
+
+  # Bar charts have some extra defaults to look better by default. Also allow for non-numeric x-coordinates.
+  # All of these defaults can be overridden.
+  (def bar-chart? (index-of line-style [:bar :multi-bar]))
+  (def x-data (assert (in data x-column)))
+  (def x-data-is-numbers? (all number? x-data))
+  (def x-data-as-numbers (if x-data-is-numbers? x-data (range (length x-data))))
+  (default grid-between-x (and bar-chart? (not transpose)))
+  (default grid-between-y (and bar-chart? transpose))
+  (default x-ticks (if (and (not x-data-is-numbers?) (not transpose)) x-data-as-numbers))
+  (default y-ticks (if (and (not x-data-is-numbers?) transpose) x-data-as-numbers))
+  (default format-x (if (and (not x-data-is-numbers?) (not transpose)) (fn [xi] (string (get x-data xi)))))
+  (default format-y (if (and (not x-data-is-numbers?) transpose) (fn [yi] (string (get x-data yi)))))
+  # Now shallow clone to replace x-data with x-data-as-numbers
+  (def data :shadow (table ;(kvs data) x-column x-data-as-numbers))
 
   # Check enums
   (enum grid :none :solid :stipple)
@@ -1066,7 +1138,7 @@
     (text-draw canvas (math/round (* 0.5 (- width title-width))) padding title text-color font title-scale))
 
   # Add legend if legend = :top. This makes a horizontal legend just below the title with no extra framing
-  (def legend-padding (max 4 (div padding 4)))
+  (default legend-padding (max 4 (div padding 4)))
   (when (= legend :top)
     (+= title-padding (div padding 2))
     (def view-width (- width padding padding))
@@ -1100,10 +1172,12 @@
       :x-min x-min :x-max x-max
       :y-min y-min :y-max y-max
       :x-ticks x-ticks :y-ticks y-ticks :tick-length tick-length
+      :x-grid-ticks x-grid-ticks :y-grid-ticks y-grid-ticks
       :x-label x-label :y-label y-label
       :x-minor-ticks x-minor-ticks
       :y-minor-ticks y-minor-ticks
       :x-labels-vertical x-labels-vertical
+      :grid-between-x grid-between-x :grid-between-y grid-between-y
       :transpose transpose))
 
   # Render graph lines
@@ -1380,6 +1454,8 @@
                :x-min x-min :x-max x-max
                :y-min y-min :y-max y-max
                :x-ticks x-ticks :y-ticks y-ticks :tick-length tick-length
+               # TODO - enable this for nice grids
+               # :x-grid-ticks x-grid-ticks :y-grid-ticks y-grid-ticks
                :x-label x-label :y-label y-label
                :x-minor-ticks x-minor-ticks
                :y-minor-ticks y-minor-ticks

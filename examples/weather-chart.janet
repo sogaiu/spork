@@ -56,7 +56,7 @@
   (def x-ticks (seq [[i x] :pairs timestamps :when (string/has-suffix? "T00:00" x)] i))
   (defn format-x [x] (slice (first (string/split "T" (get timestamps (math/round x) ""))) 5))
 
-  # So fetch (disable this for black-on-white instead of white-on-black)
+  # So fetch (disable this for black-on-white instead of white-on-black, looks more professional, less cool)
   (charts/dark-mode)
 
   # Render a nice chart
@@ -80,6 +80,9 @@
     :line-style :stroke #{:temperature_2m :stroke}
     :x-ticks x-ticks
     :format-x format-x
+    # :transpose true
+    # :y-ticks x-ticks
+    # :format-y format-x
     # :font :olive
     # :olive, :default, and :tall are built-in bitmap fonts that don't need an external TTF file.
     :font (gfx2d/load-font "examples/fonts/Roboto-Regular.ttf" 29.5)

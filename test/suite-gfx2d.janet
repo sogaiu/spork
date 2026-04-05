@@ -1,4 +1,5 @@
 (use spork/test)
+(import spork/math :as smath)
 (import spork/path)
 
 (use spork/gfx2d)
@@ -505,5 +506,40 @@
 (test-horizontal-chart :bar)
 (test-horizontal-chart :stroke)
 (test-horizontal-chart :multi-bar)
+
+(defn test-axis-points
+  "Make sure that drawing axes properly respects the input coordinates and returns good mapping functions."
+  [w h xt yt &opt inner-padding]
+  (def c (blank w h 4))
+  (fill-rect c 0 0 w h white)
+  (def [view to-pix to-metric outer]
+    (charts/draw-axes
+      :canvas c
+      :x-min 0 :x-max (- xt 1) :y-min 0 :y-max (- yt 1)
+      :grid :stipple
+      :inner-padding inner-padding
+      :x-ticks (range xt)
+      :y-ticks (range yt)))
+  (loop [x :range [0 xt]
+         y :range [0 yt]]
+    (def [xx yy] (to-metric ;(to-pix x y)))
+    (assert (smath/approx-eq xx x) "bad axes vector mapping")
+    (assert (smath/approx-eq yy y) "bad axes vector mapping"))
+  # Put blue rings in the 4 corners for visual inspection
+  (def {:width vw :height vh} (unpack view))
+  (each x [0 (- vw 1)]
+    (each y [0 (- vh 1)]
+      (plot-ring view x y 4 blue)))
+  (loop [x :range [0 xt]
+         y :range [0 yt]]
+    (plot-ring view ;(map math/round (to-pix x y)) 3 red))
+  (check-image outer (string "axis_test_" w "x" h "px_" xt "_by_" yt ".png")))
+
+(test-axis-points 200 200 6 6)
+(test-axis-points 200 200 3 3)
+(test-axis-points 200 200 5 7)
+(test-axis-points 200 200 11 27)
+(test-axis-points 200 200 2 2)
+(test-axis-points 200 200 8 8 0)
 
 (end-suite)
