@@ -510,6 +510,7 @@
 (defn test-axis-points
   "Make sure that drawing axes properly respects the input coordinates and returns good mapping functions."
   [w h xt yt &opt inner-padding]
+  (default inner-padding 8)
   (def c (blank w h 4))
   (fill-rect c 0 0 w h white)
   (def [view to-pix to-metric outer]
@@ -520,13 +521,19 @@
       :inner-padding inner-padding
       :x-ticks (range xt)
       :y-ticks (range yt)))
+  (def {:width vw :height vh} (unpack view))
   (loop [x :range [0 xt]
          y :range [0 yt]]
-    (def [xx yy] (to-metric ;(to-pix x y)))
+    (def [px py] (to-pix x y))
+    # Check 4 corners are in the right places
+    (when (= x 0) (assert (smath/approx-eq px inner-padding)))
+    (when (= y 0) (assert (smath/approx-eq py (- vh 1 inner-padding))))
+    (when (= x (dec xt)) (assert (smath/approx-eq px (- vw 1 inner-padding))))
+    (when (= y (dec yt)) (assert (smath/approx-eq py inner-padding)))
+    (def [xx yy] (to-metric px py))
     (assert (smath/approx-eq xx x) "bad axes vector mapping")
     (assert (smath/approx-eq yy y) "bad axes vector mapping"))
   # Put blue rings in the 4 corners for visual inspection
-  (def {:width vw :height vh} (unpack view))
   (each x [0 (- vw 1)]
     (each y [0 (- vh 1)]
       (plot-ring view x y 4 blue)))

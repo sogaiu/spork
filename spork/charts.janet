@@ -577,7 +577,7 @@
   (assert y-max)
 
   # Check enums
-  (enum grid :none :solid :stipple)
+  (enum grid :none :solid :stipple :fine-stipple)
 
   (def {:width width :height height} (g/unpack canvas))
   (assert (pos? width))
@@ -597,8 +597,8 @@
   (default tick-length (div font-height 3))
   (def has-grid (not= grid :none))
   (def has-ticks (not has-grid))
-  (def stipple-cycle (if (= grid :stipple) 8 0))
-  (def stipple-on 4)
+  (def stipple-cycle (case grid :stipple 8 :fine-stipple 2 0))
+  (def stipple-on (case grid :stipple 4 1))
   (def tick-height (if has-grid 10 (+ tick-length 3)))
   (def tick-trim (if has-grid 0 (- tick-height tick-length)))
 
@@ -905,7 +905,7 @@
 
     # Plot lines between points
     (def line-style2 (get line-style-per-column ycol line-style))
-    (enum line-style2 :plot :stipple :stroke :bar :multi-bar :none :area)
+    (enum line-style2 :plot :stipple :fine-stipple :stroke :bar :multi-bar :none :area)
     (def multi-bar (= line-style2 :multi-bar)) # multi-bar and bar share most of the same code
     (case (if multi-bar :bar line-style2)
 
@@ -916,6 +916,11 @@
           (+= (up-pts i) 1))
         (g/plot-path canvas up-pts graph-color 8 5)
         (g/plot-path canvas pts graph-color 8 5))
+
+      :fine-stipple
+      (do
+        (def up-pts (array/slice pts))
+        (g/plot-path canvas pts graph-color 2 1))
 
       :plot
       (do
@@ -998,6 +1003,8 @@
           :plot
           (g/plot-ring canvas (math/round x) (math/round y) point-radius color)
           :stipple
+          (g/plot-ring canvas (math/round x) (math/round y) point-radius color)
+          :fine-stipple
           (g/plot-ring canvas (math/round x) (math/round y) point-radius color)
           (g/ring canvas x y (- point-radius stroke-thickness) point-radius color)))))
 
@@ -1117,8 +1124,8 @@
   (def data :shadow (table ;(kvs data) x-column x-data-as-numbers))
 
   # Check enums
-  (enum grid :none :solid :stipple)
-  (enum line-style :plot :stipple :stroke :bar :multi-bar :none :area) # - allow for dictionary of styles
+  (enum grid :none :solid :stipple :fine-stipple)
+  (enum line-style :plot :stipple :fine-stipple :stroke :bar :multi-bar :none :area) # - allow for dictionary of styles
   (enum legend :none :top :top-left :top-right :bottom-left :bottom-right)
 
   # Allow variadic shorthand
