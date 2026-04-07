@@ -826,6 +826,7 @@
     [x:Janet] -> BlendFunc
     (if
       (janet-keyeq x "over") (return blend-over)
+      (janet-keyeq x "simple") (return blend-over-simple)
       (janet-keyeq x "under") (return blend-under)
       (janet-keyeq x "premul") (return blend-premul)
       (janet-keyeq x "add") (return blend-add)
@@ -849,7 +850,7 @@
     (def ymax:int (? (< yoverflow 0) src->height (- src->height yoverflow)))
     (polymorph src->channels [1 2 3 4]
       # TODO - automatically add all blend modes here if we add more
-      (polymorph-cond blender [blend-add blend-sub blend-over blend-under blend-premul blend-under-premul blend-lighten blend-darken]
+      (polymorph-cond blender [blend-add blend-sub blend-over blend-over-simple blend-under blend-premul blend-under-premul blend-lighten blend-darken]
         (for [(var y:int ymin) (< y ymax) (++ y)]
           (for [(var x:int xmin) (< x xmax) (++ x)]
             (def src-color:uint32_t (image-get-pixel src x y))

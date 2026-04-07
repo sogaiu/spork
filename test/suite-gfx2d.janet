@@ -7,7 +7,7 @@
 # Test charting as well
 (import spork/charts :as charts)
 
-# Don't make hash dependent tests - not easily portable across verions
+# Don't make hash dependent tests - not easily portable across versions
 (setdyn charts/*color-seed* (os/cryptorand 16))
 
 (start-suite)
@@ -345,7 +345,7 @@
       :padding 10
       :font :olive
       :grid :solid
-      :circle-points true
+      :circle-points :oplot
       :color-map {:temperature-1 blue :temperature-2 green :temperature-3 yellow :temperature-4 cyan}
       :legend :top
       :legend-map (tabseq [c :in columns] c (string/replace "temperature-" "T" c))
@@ -478,7 +478,7 @@
   []
   # By default is too large so we shrink it
   (def c (charts/line-chart :padding 0 :inner-padding 0 :width 200 :height 200
-                            :color-map red
+                            :color-map red :line-style :stroke :super-sample 4
                             :data {:x (reverse (range 100)) :y (range 100)}))
   (check-image c "minimal_chart.png"))
 
@@ -547,5 +547,35 @@
 (test-axis-points 200 200 11 27)
 (test-axis-points 200 200 2 2)
 (test-axis-points 200 200 8 8 0)
+
+(defn test-multi-bar-scatter
+  []
+  (def nx 12)
+  (setdyn :grid-color 0xFF000000)
+  (def c
+    (charts/line-chart
+      :title "Months of the year"
+      :data {:x ["Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec"]
+             :y (seq [x :range [0 nx]] (math/cos (* x (/ 10 nx))))
+             :yy (seq [x :range [0 nx]] (math/cos (* x (/ 10 nx))))
+             :yyy (seq [x :range [0 nx]] (math/cos (* x (/ 10 nx))))
+             :yyyy (seq [x :range [0 nx]] (if (not= 20 x) (+ 1.3 (math/sin (* x (/ 10 nx))))))}
+      :font (load-font "examples/fonts/Roboto-Regular.ttf" 24)
+      :color-map (fn [name] ((charts/color-maps :viridis) (/ (- (length name) 0.5) 4)))
+      :inner-padding 25
+      :legend-padding 8
+      :line-style :multi-bar
+      :circle-points :x
+      :point-radius 10
+      :stroke-thickness 2
+      :bar-padding 100
+      :legend :top-right
+      :transpose false
+      :width (/ 3840 4)
+      :height (/ 2160 4)
+      :grid :stipple))
+  (check-image c "multi-bar-scatter.png"))
+
+(test-multi-bar-scatter)
 
 (end-suite)

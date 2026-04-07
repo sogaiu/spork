@@ -6,7 +6,7 @@
 (import spork/gfx2d)
 
 ###
-### The closure driven way
+### The closure-driven way
 ###
 (def cmap (get charts/color-maps :turbo))
 (defn distfrom [px py] (fn [x y] (let [dx (- px x) dy (- py y)] (math/sqrt (+ (* dx dx) (* dy dy))))))

@@ -37,6 +37,7 @@
 ### [ ] - flame graph
 ### [ ] - packing chart (alternative to pie-charts)
 ### [x] - heat map
+### [ ] - more graphics for scatter plots besides rings.
 ### [ ] - error bars on line chart
 ### [ ] - fill between chart
 ### [ ] - attributed text for captions and annotations
@@ -359,7 +360,7 @@
   ```
   Draw a legend given a set of labels and colors
 
-  `canvas` can be either nil to skip drawing or a gfx2d/Image.
+  `canvas` can be either nil to skip drawing or a gfx2d/image.
 
   * :background-color - the color of the background of the legend
   * :font - the font to use for legend text
@@ -439,7 +440,7 @@
   ```
   Draw a legend that describes a heat-map color range.
 
-  `canvas` can be either nil to skip drawing or a gfx2d/Image.
+  `canvas` can be either nil to skip drawing or a gfx2d/image.
 
   * :swatch-width - width of the color gradient in pixels
   * :swatch-height - height of the color gradient in pixels
@@ -517,7 +518,7 @@
   to convert a coordinate in the metric space to the screen space. Most parameters
   are optional with sane defaults, but canvas, x-min, x-max, y-min, y-max are all required.
 
-  * :canvas - gfx2d/Image to draw the axes on
+  * :canvas - gfx2d/image to draw the axes on
   *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
   *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :x-label - optional label for the x axis
@@ -549,7 +550,7 @@
   * :grid-between-x - Put grid-lines between X-axis labels on the x-axis instead of on them.
   * :grid-between-y - Put grid-lines between X-axis labels on the y-axis instead of on them.
 
-  Returns a 4-tuple [view:gfx2d/Image to-pixel-space:fn to-metric-space:fn outer-canvas:gfx2d/Image]
+  Returns a 4-tuple [view:gfx2d/image to-pixel-space:fn to-metric-space:fn outer-canvas:gfx2d/image]
 
   * `view` is an image that can be used to draw inside the chart, clipped so you don't overwrite that axes.
   * `(to-pixel-space metric-x metric-y)` converts metric space coordinates to pixel space for plotting on `view`.
@@ -800,11 +801,48 @@
 ### Line Graphs
 ###
 
+(defn- get-scatter-style
+  "Get a stampable image to use for scatter plots. Either use an input image or generate one that looks nice."
+  [ss color point-radius stroke-thickness]
+  (when (= :gfx2d/image (type ss)) (break ss))
+  (def point-radius :shadow (math/round point-radius))
+  (def size (+ 1 (* 2 point-radius)))
+  (def cd point-radius) # center x and center y
+  (def img (g/blank size size 4))
+  (def border (- (math/ceil (/ point-radius 4)) 1))
+  # Should we use plotting functionality for small ticknesses?
+  (cond
+    (= ss :xplot)
+    (do
+      (def thick 0)
+      (g/plot-path img [thick thick (- size thick 1) (- size thick 1)] color)
+      (g/plot-path img [thick (- size thick 1) (- size thick 1) thick] color))
+    (= ss :x)
+    (do
+      (def thick (math/floor (/ stroke-thickness 2)))
+      (g/stroke-path img [thick thick (- size thick 1) (- size thick 1)] color thick)
+      (g/stroke-path img [thick (- size thick 1) (- size thick 1) thick] color thick))
+    (= ss :o)
+    (do
+      (def cxy (math/ceil (/ size 2)))
+      (def eps -0.01)
+      (g/ring img cxy cxy (- point-radius stroke-thickness eps) (- point-radius eps) color))
+    (= ss :oplot)
+    (do
+      (def cxy (math/floor (/ size 2)))
+      (g/plot-ring img cxy cxy point-radius color))
+    (= ss :square)
+    (g/fill-rect img 0 0 size size color)
+    (= ss :diamond)
+    (g/fill-path img [0 cd cd 0 (- size 1) cd cd (- size 1)] color)
+    (errorf "unknown scatter style %v" ss))
+  img)
+
 (defn plot-line-graph
   ```
   Plot a line graph or scatter graph on a canvas. This function does not add a set of axis, title, or chart legend, it will only plot the graph lines and points from data.
 
-  * :canvas - a gfx2d/Image to draw on
+  * :canvas - a gfx2d/image to draw on
   *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
   *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :to-pixel-space - optional function (f x y) -> [pixel-x pixel-y]. Used to convert the metric space to pixel space when plotting points.
@@ -903,6 +941,9 @@
           (def [x1 y1] (to-pixel-space x y))
           (array/push pts x1 y1))))
 
+    # Keep these around to know x/y coordinates of multi-bar data points on screen.
+    (def multi-bar-coords @{})
+
     # Plot lines between points
     (def line-style2 (get line-style-per-column ycol line-style))
     (enum line-style2 :plot :stipple :fine-stipple :stroke :bar :multi-bar :none :area)
@@ -982,40 +1023,50 @@
               (def y2 (math/round (- y-pixel-gridline-before (math/ceil (/ bar-padding 2)))))
               (def w1 (math/round (+ y1 (/ (* series-index (- y2 y1)) n-sections))))
               (def w2 (math/round (+ y1 (/ (* (+ 1 series-index) (- y2 y1)) n-sections))))
+              (put multi-bar-coords [series-index j] [xr (math/round (/ (+ w1 w2) 2))])
               (g/fill-rect canvas base-x (+ 1 w1) (- xr base-x) (- w2 w1 1) color))
             (do
               (def x1 (math/round (+ x-pixel-gridline-before (math/floor (/ bar-padding 2)))))
               (def x2 (math/round (- x-pixel-gridline-after (math/ceil (/ bar-padding 2)))))
               (def w1 (math/round (+ x1 (/ (* series-index (- x2 x1)) n-sections))))
               (def w2 (math/round (+ x1 (/ (* (+ 1 series-index) (- x2 x1)) n-sections))))
+              (put multi-bar-coords [series-index j] [(math/round (/ (+ w1 w2) 2)) yr])
               (g/fill-rect canvas (+ 1 w1) base-y (- w2 w1 1) (- yr base-y) color)))))
 
       :none nil)
 
     # Plot points
     (when circle-points
+      # Allow for different styles per column
+      (def style1 (if (dictionary? circle-points) (get circle-points ycol true) circle-points))
+      (def style (if (= true style1) :x style1))
+      (def stamps @{})
       (loop [i :range [0 (length pts) 2]]
         (def x (get pts i))
         (def y (get pts (+ 1 i)))
         (def j (div i 2))
         (def color (x-colors (get xs j) (get ys j) j))
-        (case line-style2
-          :plot
-          (g/plot-ring canvas (math/round x) (math/round y) point-radius color)
-          :stipple
-          (g/plot-ring canvas (math/round x) (math/round y) point-radius color)
-          :fine-stipple
-          (g/plot-ring canvas (math/round x) (math/round y) point-radius color)
-          (g/ring canvas x y (- point-radius stroke-thickness) point-radius color)))))
+        (def stamp-key [style color point-radius stroke-thickness]) # memoize
+        (def stamping-image
+          (if-let [res (get stamps stamp-key)]
+            res
+            (set (stamps stamp-key) (get-scatter-style ;stamp-key))))
+        (assert (= :gfx2d/image (type stamping-image)))
+        (def {:width circle-w :height circle-h} (g/unpack stamping-image))
+        # Multi-bar has different coordinates for drawing points.
+        (def [px py] (get multi-bar-coords [series-index j] [x y]))
+        (g/stamp-blend canvas stamping-image :premul
+                       (math/round (- px -0.5 (* circle-w 0.5)))
+                       (math/round (- py -0.5 (* circle-h 0.5)))))))
 
   canvas)
 
 (defn line-chart
   ```
-  Render a line chart. Returns a gfx2d/Image which can be further manipulated with the spork/gfx2d module.
+  Render a line chart. Returns a gfx2d/image which can be further manipulated with the spork/gfx2d module.
 
   Basic Parameters
-  * :canvas - a gfx2d/Image to draw on
+  * :canvas - a gfx2d/image to draw on
   *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
   *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :data - a data frame to use for data
@@ -1237,7 +1288,7 @@
   Render a heat map on a set of axis. Will nicely fill the passed in image, so use a subview to draw to a section of the chart.
 
   Basic Parameters
-  * :canvas - A gfx2d/Image to draw on
+  * :canvas - A gfx2d/image to draw on
   *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
   *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :color-fn - Function `(color-fn x y)` that returns a gfx2d color (32 bit integer) used to color each cell in the heat-map. If color-fn evaluates to a falsey value, that cell will be left blank.
@@ -1298,7 +1349,7 @@
   Generate a heat map.
 
   Basic Parameters
-  * :canvas - A gfx2d/Image to draw on
+  * :canvas - A gfx2d/image to draw on
   *   :width - (if no canvas provided) - make a new canvas with the given width in pixels
   *   :height - (if no canvas provided) - make a new canvas with the given height in pixels
   * :color-map - a color map keyword or function used to map numbers 0
