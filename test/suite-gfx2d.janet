@@ -561,7 +561,7 @@
              :yyy (seq [x :range [0 nx]] (math/cos (* x (/ 10 nx))))
              :yyyy (seq [x :range [0 nx]] (if (not= 20 x) (+ 1.3 (math/sin (* x (/ 10 nx))))))}
       :font (load-font "examples/fonts/Roboto-Regular.ttf" 24)
-      :color-map (fn [name] ((charts/color-maps :viridis) (/ (- (length name) 0.5) 4)))
+      :color-map :magma
       :inner-padding 25
       :legend-padding 8
       :line-style :multi-bar

@@ -132,15 +132,6 @@
 (defn- lerp [x y t] (+ (* x t) (* y (- 1 t))))
 (defn- clamp [x a b] (cond (< x a) a (< b x) b x))
 
-(defn- color-hash
-  "Given a value, generate a pseudo-random color for visualization"
-  [x &opt color-seed]
-  (default color-seed (dyn *color-seed*))
-  (def rng (math/rng (hash [x color-seed])))
-  (g/rgb (+ 0.2 (* 0.6 (math/rng-uniform rng)))
-         (+ 0.2 (* 0.6 (math/rng-uniform rng)))
-         (+ 0.2 (* 0.6 (math/rng-uniform rng)))))
-
 (defn- canvas-and-dimensions
   "Get a canvas and dimensions given canvas, width and height, where canvas or width and height can be nil."
   [canvas width height]
@@ -291,7 +282,7 @@
   (def n-1-colors (- n-colors 1))
   (def srgb-colors (map g/as-srgb colors))
   (fn :interp
-    [t]
+    [t &]
     (def t :shadow (clamp t 0 1))
     (def a-index (math/floor (* t n-1-colors)))
     (def b-index (+ 1 a-index))
@@ -308,12 +299,39 @@
   [mapping]
   (fn :inverted-map [t] (mapping (- 1 t))))
 
+(defn- color-hash-impl
+  [x]
+  (def rng (math/rng (hash x)))
+  # Avoid blacks and whites
+  (g/rgb (+ 0.2 (* 0.6 (math/rng-uniform rng)))
+         (+ 0.2 (* 0.6 (math/rng-uniform rng)))
+         (+ 0.2 (* 0.6 (math/rng-uniform rng)))))
+
+(defn- color-hash
+  "Given a value, generate a pseudo-random color for visualization based on parameter t in range [0, 1]"
+  [t _x &opt color-seed]
+  (default color-seed (dyn *color-seed*))
+  # Clamp to integer so any floating point error across architecture or calculations doesn't
+  # result in a totally different color. NOTE: since this relies on the "hash" function, it may
+  # not be identical between Janet versions.
+  (def input [(math/floor (* 0x10000000 (clamp t 0 1))) color-seed])
+  (color-hash-impl input))
+
+(defn- color-hash-label
+  [_t x &opt color-seed]
+  "Given a value, generate a pseudo-random color for visualization based on a label. This lets dynamic labels
+  map to stable colors."
+  (default color-seed (dyn *color-seed*))
+  (color-hash-impl [x color-seed]))
+
 (def color-maps
   ```
   A table containing various default color maps that can be used for rendering heat map data.
   Each value is a function mapping real numbers in the range [0, 1] to colors represented as 32 bit integers.
   ```
-  @{:grayscale (make-color-map g/black g/white)
+  @{:hash color-hash
+    :hash-label color-hash-label
+    :grayscale (make-color-map g/black g/white)
     :bluescale (make-color-map 0xFF330000 g/white)
     :redscale (make-color-map 0xFF000033 g/white)
     :greenscale (make-color-map 0xFF003300 g/white)
@@ -353,8 +371,12 @@
     (indexed? cmap) (make-color-map ;cmap)
     (keyword? cmap) (assert (get color-maps cmap) "unknown color map")
     (number? cmap) (fn [&] :constant-color-map cmap)
-    (dictionary? cmap) (fn [x] :dictionary-color-map (get cmap x g/magenta))
+    (dictionary? cmap) (fn [_t x] :dictionary-color-map (get cmap x g/magenta))
     (errorf "unknown color map %v - expect function, array, tuple, table, struct, number, table, or keyword, got %v" cmap)))
+
+###
+### Argument groups
+###
 
 (defn draw-legend
   ```
@@ -380,7 +402,7 @@
    frame color-seed legend-map line-color text-color]
   (default font (dyn *font* default-font))
   (default padding (dyn *padding* default-padding))
-  (default color-map color-hash)
+  (default color-map :magma)
   (default legend-map {})
   (default view-width 0)
   (default background-color (dyn *background-color* default-background-color))
@@ -398,7 +420,9 @@
   (var x padding)
   (var max-x 0)
   (def cmap (to-color-map color-map))
-  (each i labels
+  # multiply label index by this to get index as real 0-1.
+  (def factor (let [len (length labels)] (if (<= len 1) 0.5 (/ (- len 1)))))
+  (eachp [index i] labels
     (def lab (string (get legend-map i i)))
     (def [text-width _] (text-measure lab font 1))
     (def item-width (+ padding padding padding text-width swatch-size))
@@ -406,7 +430,7 @@
       (unless (= i (first labels)) (+= y spacing)) # don't skip first line
       (set x padding))
     (when canvas
-      (def color (cmap i))
+      (def color (cmap (* factor index) i))
       (g/fill-rect canvas x y swatch-size swatch-size color)
       (text-draw canvas (+ x swatch-size padding) (+ small-spacing y) lab text-color font 1))
     (+= x (+ item-width padding))
@@ -881,7 +905,7 @@
 
   (def [canvas canvas-width canvas-height] :shadow (canvas-and-dimensions canvas width height))
   (default to-pixel-space (fn :convert [x y] [x y]))
-  (default color-map color-hash)
+  (default color-map :turbo)
   (default line-style-per-column {})
   (default line-style :plot)
   (default bar-padding 5)
@@ -923,8 +947,10 @@
   # Draw graph
   (def xs (get data x-column))
   (assert (indexed? xs))
+  # multiply label index by this to get index as real 0-1.
+  (def factor (let [len (length y-columns)] (if (<= len 1) 0.5 (/ (- len 1)))))
   (eachp [series-index ycol] y-columns
-    (def graph-color (cmap ycol))
+    (def graph-color (cmap (* series-index factor) ycol))
     (default x-colors (fn :default-x-colors [&] graph-color))
     (def ys (get data ycol))
 
@@ -1150,7 +1176,7 @@
   (default y-column (drop 1 skeys))
   (default padding (dyn *padding* default-padding))
   (default point-radius 3)
-  (default color-map color-hash)
+  (default color-map :turbo)
   (default background-color (dyn *background-color* default-background-color))
   (default text-color (dyn *text-color* default-text-color))
   (default font (dyn *font* default-font))
@@ -1429,8 +1455,7 @@
   (default tick-length 0)
 
   # Allow a few ways to populate the heat-map with data
-  (default color-map :magma)
-  (def color-map :shadow (to-color-map color-map))
+  (def color-map :shadow (to-color-map (or color-map :magma)))
   (default data [[]])
   (default xs (or (and num-columns (range num-columns)) (sort (keys data))))
   (default ys (range (or num-rows (length (get data (first xs))))))
