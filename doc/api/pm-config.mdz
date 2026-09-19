@@ -1,7 +1,0 @@
-{:title "pm-config"
- :template "mdzdoc/main.html"}
- ---
-
-## Reference
-
-@api-docs("../../spork" "pm-config")

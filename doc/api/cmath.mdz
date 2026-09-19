@@ -1,7 +1,0 @@
-{:title "cmath"
- :template "mdzdoc/main.html"}
- ---
-
-## Reference
-
-@api-docs("../../spork" "cmath")

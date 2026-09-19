@@ -1,9 +1,0 @@
-{:title "channel"
- :template "mdzdoc/main.html"}
- ---
-
-Channel utilities for Janet.
-
-## Reference
-
-@api-docs("../../spork" "channel")

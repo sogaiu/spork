@@ -1,9 +1,0 @@
-{:title "sh"
- :template "mdzdoc/main.html"}
- ---
-
-Shell utilities for Janet.
-
-## Reference
-
-@api-docs("../../spork" "sh")

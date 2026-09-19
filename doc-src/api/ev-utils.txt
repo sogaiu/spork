@@ -1,0 +1,8 @@
+{:title "ev-utils"
+ :template "mdzdoc/main.html"}
+ ---
+
+Module for parallel execution utilities with Janet.
+
+## Reference
+
