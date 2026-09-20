@@ -70,7 +70,7 @@
 
 (defn process
   [path full-path out-dir render-fn]
-  (def file-ext ".txt")
+  (def file-ext ".mdz")
   (when (and (= :file (os/stat full-path :mode))
              (string/has-suffix? file-ext path))
     (def title (string/slice path 0 (- (inc (length file-ext)))))
@@ -99,12 +99,12 @@
   (os/mkdir "doc")
   (os/mkdir "doc/api")
   #
-  (process "index.txt" "doc/src/index.txt" "doc" render-top-index)
+  (process "index.mdz" "doc/src/index.mdz" "doc" render-top-index)
   #
   (def in-dir "doc-src/api")
   (each path (os/dir in-dir)
     (def full-path (string in-dir "/" path))
     (def out-dir "doc/api")
-    (if (= path "index.txt")
+    (if (= path "index.mdz")
       (process path full-path out-dir render-index-page)
       (process path full-path out-dir render))))

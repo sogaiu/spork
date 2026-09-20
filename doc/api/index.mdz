@@ -1,0 +1,12 @@
+{:title "Spork API"
+ :template "mdzdoc/main.html"
+ :nav-title "API"}
+---
+
+## Index
+
+@api-index[../../spork]
+
+## Reference
+
+@api-docs[../../spork]
