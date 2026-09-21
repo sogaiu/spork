@@ -102,9 +102,9 @@
   (process "index.mdz" "doc/src/index.mdz" "doc" render-top-index)
   #
   (def in-dir "doc-src/api")
+  (def out-dir "doc/api")
   (each path (os/dir in-dir)
     (def full-path (string in-dir "/" path))
-    (def out-dir "doc/api")
     (if (= path "index.mdz")
       (process path full-path out-dir render-index-page)
       (process path full-path out-dir render))))
